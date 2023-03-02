@@ -24,9 +24,12 @@ import { isNonNullObject } from '../common/validator';
 import { DefaultUiConfigBuilder } from '../common/config-builder';
 import { UiConfig } from '../common/config';
 import { IapSettingsHandler, IapSettings } from './api/iap-settings-handler';
-import { GcipHandler, TenantUiConfig, GcipConfig } from './api/gcip-handler';
+import { GcipHandler, TenantUiConfig, GcipConfig, SignInOption } from './api/gcip-handler';
 import { isLastCharLetterOrNumber } from '../common/index';
 import { createProxyMiddleware } from 'http-proxy-middleware';
+import { SamlLogoutRequestRequest, SamlManager} from './api/saml-manager';
+import { SecretManagerSigningCertManager} from './api/signing-cert-manager';
+import { GcipTokenManager} from './api/token-manager';
 
 // Defines the Auth server OAuth scopes needed for internal usage.
 // This is used to query APIs to determine the default config.
@@ -90,6 +93,7 @@ export class AuthServer {
   private iapSettingsHandler: IapSettingsHandler;
   /** Default config promise. This stores the default config in memory. */
   private defaultConfigPromise: Promise<UiConfig> | null;
+  private certManager: SecretManagerSigningCertManager;
 
   /**
    * Creates an instance of the auth server using the specified express application instance.
@@ -107,6 +111,8 @@ export class AuthServer {
     this.gcipHandler = new GcipHandler(this.metadataServer, this.metadataServer);
     // IAP settings handler used to list all IAP enabled services and their settings.
     this.iapSettingsHandler = new IapSettingsHandler(this.metadataServer, this.metadataServer);
+
+    this.certManager = new SecretManagerSigningCertManager();
     this.init();
   }
 
@@ -117,7 +123,24 @@ export class AuthServer {
    */
   start(port: string = '8080'): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.server = this.app.listen(parseInt(port, 10), () => {
+      let app = this.app;
+
+      if (port == '443') {
+        const https = require("https");
+        const fs = require("fs");
+
+        let key = fs.readFileSync('./tutorial.key','utf-8')
+        let cert = fs.readFileSync('./tutorial.crt','utf-8')
+
+        let parameters = {
+            key: key,
+            cert: cert
+          }
+
+        app = https.createServer(parameters, this.app);
+      }
+
+      this.server = app.listen(parseInt(port, 10), () => {
         // Log current version of hosted UI.
         // tslint:disable-next-line:no-console
         console.log('Server started with version', HOSTED_UI_VERSION);
@@ -199,8 +222,114 @@ export class AuthServer {
             }
           }
         });
-     }
-    })
+      }
+
+      this.app.get('/__/saml_logout_response', async (req: express.Request, res: express.Response) => {
+        // Use the RelayState to return to the signout URL initially started by IAP
+        if (req.query.RelayState) {
+          const redirectUrl = Buffer.from(req.query.RelayState as string, 'base64');
+          res.redirect(redirectUrl.toString());
+          res.end();
+        }
+      });
+
+      this.app.get('/__/signout', async (req: express.Request, res: express.Response) => {
+        try {
+          const relayState = req.query.relayState as string;
+          let tenantId = req.query.tid as string;
+          const apiKey = req.query.apiKey as string;
+          const accessToken = req.query.accessToken as string;
+          const refreshToken = req.query.refreshToken as string;
+
+          let redirectUrl = Buffer.from(relayState, 'base64').toString();
+          let providers :string[] = (process.env.PROVIDERS_FOR_SIGN_OUT ?? '').split(',');
+          if (!providers || providers.length == 0 || providers[0] == '') {
+            log('No providers found for single sign-out from external IdPs');
+            res.send();
+          }
+
+          // Set default tenant if no tenant was provided
+          if (!tenantId) {
+            tenantId = '_';
+          }
+
+          // Verify the access token is valid before proceeding with the sign out
+          const gcipTokenManager = new GcipTokenManager(accessToken, refreshToken, apiKey);
+          const userToken = await gcipTokenManager.verifyAccessToken();
+
+          // Verify the provider is configured for IdP sign out
+          const providerId = userToken.firebase.sign_in_provider;
+
+          const shouldSignOutFromProvider = providers.some((name)=> name == `${tenantId}.${providerId}`);
+          if (shouldSignOutFromProvider){
+            const iapConfigs: UiConfig = await this.getFallbackConfig(req.hostname);
+
+            if (iapConfigs.hasOwnProperty(apiKey)) {
+              // Locate the tenant and provider config
+              const iapConfig = iapConfigs[apiKey];
+              let config = iapConfig.tenants[tenantId];
+              if (config) {
+                const providerId = userToken.firebase.sign_in_provider;
+                const providerConfig : SignInOption= 
+                config.signInOptions.find((provider: SignInOption)=>provider.provider == providerId) as SignInOption;
+
+                if (providerConfig) {
+                  log(`Preparing to sign out user ${userToken.email} from external IdP (${providerConfig.provider}).`);
+                  if (providerId.startsWith('saml')) {
+                    let samlManager = new SamlManager(this.certManager);
+                    redirectUrl = await samlManager.getSamlLogoutUrl(
+                      providerConfig,
+                      userToken,
+                      relayState);
+                    log(`Generated SAML sign out request for user ${userToken.email}:\n${redirectUrl}`);
+                  } else {
+                    this.handleErrorResponse(res, {
+                      error: {
+                          code: 400,
+                          status: 'INVALID_ARGUMENT',
+                          message: 'Only SAML sign out is supported at this time',
+                      }
+                    });
+                    log(`Could not generate signout request for user ${userToken.email}:\n${redirectUrl}`);
+                  }
+                } else {
+                  this.handleErrorResponse(res, {
+                    error: {
+                        code: 400,
+                        status: 'INVALID_ARGUMENT',
+                        message: 'Could not find provider configuration for the signed in user',
+                    }
+                  });
+                }
+              } else {
+                this.handleErrorResponse(res, {
+                  error: {
+                      code: 400,
+                      status: 'INVALID_ARGUMENT',
+                      message: 'Could not find tenant configuration for the signed in user',
+                  }
+                });
+              }
+            } else {
+              // apiKey not found
+              this.handleErrorResponse(res, {
+                error: {
+                    code: 400,
+                    status: 'INVALID_ARGUMENT',
+                    message: 'Invalid apiKey',
+                },
+              });
+            }
+          }
+          res.set('Content-Type', 'application/json');
+          res.send(JSON.stringify(redirectUrl));
+        } catch (err) {
+          this.handleError(res, err);
+        }
+      });
+    }).then(()=>{
+      return this.certManager.init();
+    });
 
     // Static assets.
     // Note that in production, this is served from dist/server/auth-server.js.

@@ -20,10 +20,18 @@
   "license": "Apache-2.0",
   "homepage": "https://github.com/GoogleCloudPlatform/iap-gcip-web-toolkit",
   "dependencies": {
+    "@google-cloud/secret-manager": "^4.2.1",
     "express": "^4.17.1",
     "http-proxy-middleware": "^2.0.6",
+    "https": "^1.0.0",
+    "jsonwebtoken": "^9.0.0",
+    "pem": "^1.14.6",
+    "pem-promise": "^1.0.0",
     "request": "^2.88.2",
-    "request-promise": "^4.2.6"
+    "request-promise": "^4.2.6",
+    "xml-crypto": "^2.1.5",
+    "xmlbuilder2": "^3.0.2",
+    "zlib": "^1.0.5"
   },
   "devDependencies": {
     "@babel/cli": "^7.10.5",
@@ -47,6 +55,9 @@
     "@types/sinon": "^9.0.4",
     "@types/sinon-chai": "^3.2.4",
     "@types/supertest": "2.0.8",
+    "@types/jsonwebtoken": "^9.0.1",
+    "@types/uuid": "^9.0.1",
+    "@types/xml-crypto": "^1.4.2",
     "babel-loader": "^8.1.0",
     "body-parser": "^1.19.0",
     "bootstrap": "^4.5.0",
@@ -97,7 +108,7 @@
     "url-loader": "^4.1.0",
     "url-polyfill": "^1.1.10",
     "webpack": "^5.75.0",
-    "webpack-cli": "^4.9.1",
+    "webpack-cli": "^4.10.0",
     "whatwg-fetch": "^3.2.0"
   },
   "engines": {

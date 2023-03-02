@@ -34,6 +34,12 @@ const GET_CONFIG_PARAMS: HttpRequestConfig = {
   url: '/config',
   timeout: TIMEOUT_DURATION,
 };
+// The /__/signout HTTP request configuration.
+const GET_IDP_SIGNOUT_PARAMS: HttpRequestConfig = {
+  method: 'GET',
+  url: '/__/signout',
+  timeout: TIMEOUT_DURATION,
+};
 // The current version of the hosted UI.
 export const HOSTED_UI_VERSION = '__XXX_HOSTED_UI_VERSION_XXX__';
 
@@ -93,13 +99,110 @@ export class SignInUi {
         // token refresh, safe redirect to callback URL, etc.
         const handler = new firebaseui.auth.FirebaseUiHandler(
             this.container, config);
-        // Log the hosted UI version.
+
         this.ciapAuth = new (ciap.Authentication as any)(handler, undefined, HOSTED_UI_VERSION);
-        return this.ciapAuth.start();
+
+        const ciapParams = new URL(window.location.href).searchParams;
+        if (ciapParams.get("mode") == "signout") {
+          // Retrieve list of tenants
+          return this.getAvailableTenants(ciapParams.get("redirect_uri"), ciapParams.get("state"))
+            .then((tenants) => this.signOutByTenants(tenants, ciapParams.get("apiKey")));
+        } else {
+          return null;
+        }
+      })
+      .then((url)=>{
+        if (url && window.location.href != url) {
+          window.location.href = url;
+        } else {
+          // Log the hosted UI version.
+          this.ciapAuth.start();
+        }
       })
       .catch((error) => {
         this.handlerError(error);
         throw error;
+      });
+  }
+
+  private signOutByTenants(tenants: string[], apiKey: string): Promise<string> {
+    // Recursivly attempt to sign out tenants
+    // Return when first tenant to sign out is found or no tenants to sign out
+    const tenant = tenants.pop();
+    if (tenant) {
+      return this.signOutByTenant(tenant, apiKey)
+        .then((url) => {
+          // Stop the recursion on first valid URL
+          if (url && window.location.href != url) {
+            return url;
+          } else {
+            return this.signOutByTenants(tenants, apiKey);
+          }
+        });
+    }
+    return Promise.resolve(null);;
+  }
+
+  private signOutByTenant(tenant: string, apiKey: string): Promise<string> {
+    const tenantId = tenant.startsWith('_') ? '_' : tenant;
+    const userKey = `signed-in-user:${apiKey}:${tenantId}`;
+    // Get cached user before it is being signed out from GCIP
+    const signedInUser = JSON.parse(window.sessionStorage.getItem(userKey));
+    if (signedInUser) {
+      // First clear the cache, to prevent endless loops 
+      // of signing out the user from the IdP
+      window.sessionStorage.removeItem(userKey);
+      // Sign out the user from the first tenant we find
+      // Next tenant will sign out after returning from redirect
+      return this.getIdpSignOutUrl(signedInUser, apiKey, tenantId);
+    }
+    return Promise.resolve(null);
+  }
+
+  /**
+   * @return A promise that resolves with a list of available tenants
+   */
+  private getAvailableTenants(iapUrl: string, state: string) : Promise<string[]> {
+    const tenantsRequest: HttpRequestConfig = {
+      method: 'POST',
+      url: iapUrl,
+      data: {state: state},
+      timeout: TIMEOUT_DURATION,
+    };
+    return this.httpClient.send(tenantsRequest)
+      .then((httpResponse) => {
+        return httpResponse.data.tenantIds as string[];
+      })
+      .catch((error) => {
+        const resp = error.response;
+        const errorData = resp.data;
+        throw new Error(errorData.error.message);
+      });
+  }
+
+  /**
+   * @return A promise that resolves with the redirect URL for
+   * IdP signout
+   */
+  private getIdpSignOutUrl(user: any, apiKey: string, tenantId: string): Promise<string> {
+    const relayState = btoa(window.location.href);
+    const request = deepCopy(GET_IDP_SIGNOUT_PARAMS);
+    const url = new URL(request.url, window.location.href);
+    url.searchParams.set('apiKey', apiKey);
+    url.searchParams.set('tid', tenantId);
+    url.searchParams.set('relayState', relayState);
+    url.searchParams.set('accessToken', user.accessToken);
+    url.searchParams.set('refreshToken', user.refreshToken);
+    request.url = url.toString();
+
+    return this.httpClient.send(request)
+      .then((httpResponse) => {
+        return httpResponse.data as string;
+      })
+      .catch((error) => {
+        const resp = error.response;
+        const errorData = resp.data;
+        throw new Error(errorData.error.message);
       });
   }
 
@@ -177,6 +280,16 @@ export class SignInUi {
               this.separatorElement.style.display = 'none';
             }
           },
+          beforeSignInSuccess: (user) => {
+            const tenantId = user.tenantId || '_';
+            const userKey = `signed-in-user:${apiKey}:${tenantId}`; ;
+            window.sessionStorage.setItem(userKey, JSON.stringify({
+              name:user.email, // Store email for debug purposes
+              accessToken: user._delegate.accessToken,
+              refreshToken: user.refreshToken,
+            }));
+            return user;
+          }
         };
         // Do not trigger immediate redirect in Safari without some user
         // interaction.
