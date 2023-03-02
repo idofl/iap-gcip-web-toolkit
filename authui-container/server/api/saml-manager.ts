@@ -23,7 +23,7 @@ import { SigningCertManager} from './signing-cert-manager';
 /** Interface defining a SAML request handler */
 export interface SamlRequestHandler {
   simpleSignRequest(valueToSign: Buffer, privateKey: Buffer): string;
-  getSamlLogoutUrl(providerConfig: SignInOption, user: any, relayState: string): Promise<string>;
+  getSamlLogoutUrl(providerConfig: SignInOption, user: any, nameIdFormat: string, relayState: string): Promise<string>;
 }
 
 export class SamlLogoutRequestRequest {
@@ -87,7 +87,7 @@ export class SamlManager implements SamlRequestHandler {
     return sign.getSignedXml();
   }
 
-  async getSamlLogoutUrl(providerConfig: SignInOption, user: any, relayState: string = null): Promise<string> {
+  async getSamlLogoutUrl(providerConfig: SignInOption, user: any, nameIdFormat: string, relayState: string = null): Promise<string> {
     
     const config: SamlSignInOption = providerConfig as SamlSignInOption;
     const nameId = user.email;
@@ -102,6 +102,7 @@ export class SamlManager implements SamlRequestHandler {
     samlLogoutRequestOptions.privateKey = privateKey;
     samlLogoutRequestOptions.publicKey = publicKey;
     samlLogoutRequestOptions.relayState = relayState;
+    samlLogoutRequestOptions.nameIdFormat = nameIdFormat;
     let samlLogoutRequest: string = 
       this.createSamlLogoutRequest(samlLogoutRequestOptions);
 
@@ -174,7 +175,7 @@ export class SamlManager implements SamlRequestHandler {
   
       if (nameIdFormat) {
         xml.att({
-          Format: 'urn:oasis:names:tc:SAML:2.0:nameid-format:emailAddress'
+          Format: nameIdFormat
         })
       }
   

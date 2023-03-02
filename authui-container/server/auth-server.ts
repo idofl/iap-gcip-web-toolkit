@@ -242,10 +242,11 @@ export class AuthServer {
           const refreshToken = req.query.refreshToken as string;
 
           let redirectUrl = Buffer.from(relayState, 'base64').toString();
-          let providers :string[] = (process.env.PROVIDERS_FOR_SIGN_OUT ?? '').split(',');
-          if (!providers || providers.length == 0 || providers[0] == '') {
+          //let providers :string[] = (process.env.PROVIDERS_FOR_SIGN_OUT ?? '').split(',');
+          let supportedProviders :any[]= JSON.parse(process.env.PROVIDERS_FOR_SIGN_OUT || '[]');
+          if (!supportedProviders || supportedProviders.length == 0) {
+            // This is not an error.
             log('No providers found for single sign-out from external IdPs');
-            res.send();
           }
 
           // Set default tenant if no tenant was provided
@@ -259,9 +260,8 @@ export class AuthServer {
 
           // Verify the provider is configured for IdP sign out
           const providerId = userToken.firebase.sign_in_provider;
-
-          const shouldSignOutFromProvider = providers.some((name)=> name == `${tenantId}.${providerId}`);
-          if (shouldSignOutFromProvider){
+          const providerInfo = supportedProviders.find((config) => (config.tenantId || '_') == tenantId && config.provider == providerId);
+          if (providerInfo){
             const iapConfigs: UiConfig = await this.getFallbackConfig(req.hostname);
 
             if (iapConfigs.hasOwnProperty(apiKey)) {
@@ -280,6 +280,7 @@ export class AuthServer {
                     redirectUrl = await samlManager.getSamlLogoutUrl(
                       providerConfig,
                       userToken,
+                      providerInfo.nameIdFormat,
                       relayState);
                     log(`Generated SAML sign out request for user ${userToken.email}:\n${redirectUrl}`);
                   } else {
