@@ -24,12 +24,13 @@ import { isNonNullObject } from '../common/validator';
 import { DefaultUiConfigBuilder } from '../common/config-builder';
 import { UiConfig } from '../common/config';
 import { IapSettingsHandler, IapSettings } from './api/iap-settings-handler';
-import { GcipHandler, TenantUiConfig, GcipConfig, SignInOption } from './api/gcip-handler';
+import { GcipHandler, TenantUiConfig, GcipConfig, SignInOption, SamlSignInOption } from './api/gcip-handler';
 import { isLastCharLetterOrNumber } from '../common/index';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { SamlLogoutRequestRequest, SamlManager} from './api/saml-manager';
 import { SecretManagerSigningCertManager} from './api/signing-cert-manager';
-import { GcipTokenManager} from './api/token-manager';
+import { GcipTokenManager, TokenManager} from './api/token-manager';
+import e = require('express');
 
 // Defines the Auth server OAuth scopes needed for internal usage.
 // This is used to query APIs to determine the default config.
@@ -224,25 +225,34 @@ export class AuthServer {
         });
       }
 
+      this.app.post('/__/saml_logout_response', async (req: express.Request, res: express.Response) => {
+        if (!isNonNullObject(req.body) ||
+          Object.keys(req.body).length === 0) {
+          this.handleErrorResponse(res, ERROR_MAP.INVALID_ARGUMENT);
+        } else {
+          this.handleRelayStateRedirect(req.body.RelayState, req, res);
+        }
+      });
+
       this.app.get('/__/saml_logout_response', async (req: express.Request, res: express.Response) => {
         // Use the RelayState to return to the signout URL initially started by IAP
-        if (req.query.RelayState) {
-          const redirectUrl = Buffer.from(req.query.RelayState as string, 'base64');
-          res.redirect(redirectUrl.toString());
-          res.end();
-        }
+        this.handleRelayStateRedirect(req.query.RelayState as string, req, res);
       });
 
       this.app.get('/__/signout', async (req: express.Request, res: express.Response) => {
         try {
           const relayState = req.query.relayState as string;
+          const sessionIndex = req.query.sessionIndex as string;
           let tenantId = req.query.tid as string;
           const apiKey = req.query.apiKey as string;
           const accessToken = req.query.accessToken as string;
           const refreshToken = req.query.refreshToken as string;
 
-          let redirectUrl = Buffer.from(relayState, 'base64').toString();
-          //let providers :string[] = (process.env.PROVIDERS_FOR_SIGN_OUT ?? '').split(',');
+          let redirectUrl: string;
+          // PROVIDERS_FOR_SIGN_OUT example:
+          // [{"tenant","provider":"saml.adfs", "nameIdFormat":"urn:oasis:names:tc:SAML:2.0:nameid-format:emailAddress"}]",
+        //"PROVIDERS_FOR_SIGN_OUT": "[{\"provider\":\"saml.adfs\", \"nameIdFormat\":\"urn:oasis:names:tc:SAML:2.0:nameid-format:emailAddress\", "includeRelayState": "false"}]",
+
           let supportedProviders :any[]= JSON.parse(process.env.PROVIDERS_FOR_SIGN_OUT || '[]');
           if (!supportedProviders || supportedProviders.length == 0) {
             // This is not an error.
@@ -270,19 +280,22 @@ export class AuthServer {
               let config = iapConfig.tenants[tenantId];
               if (config) {
                 const providerId = userToken.firebase.sign_in_provider;
-                const providerConfig : SignInOption= 
-                config.signInOptions.find((provider: SignInOption)=>provider.provider == providerId) as SignInOption;
+                const providerConfig : SamlSignInOption= 
+                config.signInOptions.find((provider: SamlSignInOption)=>provider.provider == providerId) as SamlSignInOption;
 
                 if (providerConfig) {
-                  log(`Preparing to sign out user ${userToken.email} from external IdP (${providerConfig.provider}).`);
+                  providerConfig.idpUrl = providerInfo.sloUrl ?? providerConfig.idpUrl;
+                  const userNameIdentifier = gcipTokenManager.getNameIdentifier(userToken);
+                  log(`Preparing to sign out user ${userNameIdentifier} from external IdP (${providerConfig.provider}).`);
                   if (providerId.startsWith('saml')) {
                     let samlManager = new SamlManager(this.certManager);
                     redirectUrl = await samlManager.getSamlLogoutUrl(
                       providerConfig,
-                      userToken,
+                      userNameIdentifier,
                       providerInfo.nameIdFormat,
-                      relayState);
-                    log(`Generated SAML sign out request for user ${userToken.email}:\n${redirectUrl}`);
+                      providerInfo.includeRelayState ? relayState : null,
+                      sessionIndex);
+                    log(`Generated SAML sign out request for user ${userNameIdentifier}:\n${redirectUrl}`);
                   } else {
                     this.handleErrorResponse(res, {
                       error: {
@@ -291,7 +304,7 @@ export class AuthServer {
                           message: 'Only SAML sign out is supported at this time',
                       }
                     });
-                    log(`Could not generate signout request for user ${userToken.email}:\n${redirectUrl}`);
+                    log(`Could not generate signout request for user ${userNameIdentifier}:\n${redirectUrl}`);
                   }
                 } else {
                   this.handleErrorResponse(res, {
@@ -325,6 +338,7 @@ export class AuthServer {
           res.set('Content-Type', 'application/json');
           res.send(JSON.stringify(redirectUrl));
         } catch (err) {
+          log(err);
           this.handleError(res, err);
         }
       });
@@ -424,6 +438,29 @@ export class AuthServer {
           this.handleError(res, err);
         });
     });
+  }
+
+  private handleRelayStateRedirect(relayState: string, req: express.Request, res: express.Response): void {
+    if (relayState) {
+      const redirectUrl = Buffer.from(relayState, 'base64').toString();
+      const currentOrigin = `${req.protocol}://${req.get('host')}`;
+      if (new URL(redirectUrl).origin == currentOrigin) {
+        res.redirect(redirectUrl);
+        res.end();
+      } else {
+        this.handleErrorResponse(res, {
+          error: {
+              code: 400,
+              status: 'INVALID_ARGUMENT',
+              message: 'Cannot redirect to a different site than the current.',
+          },
+        });
+      } 
+    } else {
+      res.set('Content-Type', 'application/json');
+      res.send(JSON.stringify(req.originalUrl));
+      res.end();
+    }
   }
 
   /** @return Destination where requests with path "__/auth/" are proxied to. */

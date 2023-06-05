@@ -58,6 +58,9 @@ export class SecretManagerSigningCertManager implements SigningCertManager {
   async getPublicKey(keyOnly: boolean = false): Promise<Buffer>{
     if (!this.publicKey) {
       const pem = require("pem-promise");
+      pem.config(({
+        pathOpenSSL: '/usr/bin/openssl'
+      }));
       let cert = await pem.readPkcs12(
         this.cert, 
         { p12Password: this.pass.toString() });

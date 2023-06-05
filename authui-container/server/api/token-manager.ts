@@ -33,6 +33,7 @@ export interface Credential {
 
 export interface GcipToken {
   verifyAccessToken(): Promise<boolean>;
+  getNameIdentifier(token: any): string;
 }
 
 /** Metadata server access token endpoint. */
@@ -134,6 +135,10 @@ export class GcipTokenManager implements GcipToken {
 
   private async RefreshToken() {
 
+  }
+
+  getNameIdentifier(token: any): string {
+    return token.email || token.firebase.identities[token.firebase.sign_in_provider][0];
   }
 
   async verifyAccessToken(allowRefresh:boolean=true): Promise<any> {

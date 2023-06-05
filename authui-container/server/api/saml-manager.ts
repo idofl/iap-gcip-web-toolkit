@@ -23,7 +23,7 @@ import { SigningCertManager} from './signing-cert-manager';
 /** Interface defining a SAML request handler */
 export interface SamlRequestHandler {
   simpleSignRequest(valueToSign: Buffer, privateKey: Buffer): string;
-  getSamlLogoutUrl(providerConfig: SignInOption, user: any, nameIdFormat: string, relayState: string): Promise<string>;
+  getSamlLogoutUrl(providerConfig: SignInOption, nameIdentifier: string, nameIdFormat: string, relayState: string, sessionIndex: string): Promise<string>;
 }
 
 export class SamlLogoutRequestRequest {
@@ -34,6 +34,7 @@ export class SamlLogoutRequestRequest {
   privateKey: Buffer;
   publicKey: Buffer;
   relayState: string;
+  sessionIndex: string;
 }
 
 export class SamlManager implements SamlRequestHandler {
@@ -87,22 +88,27 @@ export class SamlManager implements SamlRequestHandler {
     return sign.getSignedXml();
   }
 
-  async getSamlLogoutUrl(providerConfig: SignInOption, user: any, nameIdFormat: string, relayState: string = null): Promise<string> {
+  async getSamlLogoutUrl(
+    providerConfig: SignInOption, 
+    nameIdentifier: string, 
+    nameIdFormat: string, 
+    relayState: string = null, 
+    sessionIndex: string = null): Promise<string> {
     
     const config: SamlSignInOption = providerConfig as SamlSignInOption;
-    const nameId = user.email;
-
+    
     let publicKey = await this.certManager.getPublicKey(true);
     let privateKey = await this.certManager.getPrivateKey();
 
     let samlLogoutRequestOptions = new SamlLogoutRequestRequest();
     samlLogoutRequestOptions.destination = config.idpUrl;
     samlLogoutRequestOptions.issuer = config.issuerId;
-    samlLogoutRequestOptions.nameId = nameId;
+    samlLogoutRequestOptions.nameId = nameIdentifier;
     samlLogoutRequestOptions.privateKey = privateKey;
     samlLogoutRequestOptions.publicKey = publicKey;
     samlLogoutRequestOptions.relayState = relayState;
     samlLogoutRequestOptions.nameIdFormat = nameIdFormat;
+    samlLogoutRequestOptions.sessionIndex = sessionIndex;
     let samlLogoutRequest: string = 
       this.createSamlLogoutRequest(samlLogoutRequestOptions);
 
@@ -115,7 +121,8 @@ export class SamlManager implements SamlRequestHandler {
       request.destination,
       request.issuer,
       request.nameId,
-      request.nameIdFormat
+      request.nameIdFormat,
+      request.sessionIndex,
     );
   
     // Add XML Signature to the SAML message
@@ -142,9 +149,9 @@ export class SamlManager implements SamlRequestHandler {
     }
     const signature = this.simpleSignRequest(samlRequestValue, request.privateKey);
     const signatureEncoded = encodeURIComponent(signature);    
-   
+
     let samlRequestUrl: string = samlRequestValue + `&signature=${signatureEncoded}`;
-  
+
     const logoutUrl = `${request.destination}?${samlRequestUrl}`;
     return logoutUrl;
   }
@@ -153,8 +160,11 @@ export class SamlManager implements SamlRequestHandler {
     destination: string, 
     issuer: string, 
     nameId: string, 
-    nameIdFormat: string =null) {
+    nameIdFormat: string =null,
+    sessionIndex: string =null) {
   
+    const issueTime = new Date();
+
     const xml = builder.create(
       { 
         version: '1.0',
@@ -166,9 +176,10 @@ export class SamlManager implements SamlRequestHandler {
         .att({
           ID: '_' + uuidv4(),
           Version: '2.0',
-          IssueInstant: new Date().toISOString(),
+          IssueInstant: issueTime.toISOString().replace(/\.\d+/, ""),
+          NotOnOrAfter: new Date(issueTime.getTime() + 6*60000).toISOString().replace(/\.\d+/, ""),
           Destination: destination,
-          Consent: 'urn:oasis:names:tc:SAML:2.0:consent:unspecified'
+          //Consent: 'urn:oasis:names:tc:SAML:2.0:consent:unspecified'
         })
       .ele('@saml', 'saml:Issuer').txt(issuer).up()
       .ele('@saml', 'saml:NameID').txt(nameId);
@@ -178,7 +189,11 @@ export class SamlManager implements SamlRequestHandler {
           Format: nameIdFormat
         })
       }
-  
+
+      if (sessionIndex && sessionIndex != '') {
+        xml.up().ele('@samlp', 'samlp:SessionIndex').txt(sessionIndex);
+      }
+
     return xml.up().end({ prettyPrint: true });
   }
 

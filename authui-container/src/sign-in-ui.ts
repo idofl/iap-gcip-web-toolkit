@@ -112,8 +112,10 @@ export class SignInUi {
         }
       })
       .then((url)=>{
-        if (url && window.location.href != url) {
-          window.location.href = url;
+        if (url) {
+          console.log(url);
+          //window.location.href = url;
+          //this.sendSignoutRequest(new URL(url));
         } else {
           // Log the hosted UI version.
           this.ciapAuth.start();
@@ -133,11 +135,7 @@ export class SignInUi {
       return this.signOutByTenant(tenant, apiKey)
         .then((url) => {
           // Stop the recursion on first valid URL
-          if (url && window.location.href != url) {
-            return url;
-          } else {
-            return this.signOutByTenants(tenants, apiKey);
-          }
+          return url ?? this.signOutByTenants(tenants, apiKey);
         });
     }
     return Promise.resolve(null);;
@@ -159,6 +157,48 @@ export class SignInUi {
     return Promise.resolve(null);
   }
 
+  private sendSignoutRequest(redirectUrl: URL) : Promise<void> {
+
+    let samlRequest = redirectUrl.searchParams.get("SAMLRequest");
+    let url = redirectUrl.href.replace(redirectUrl.search,"");
+
+    let form = document.createElement("form");
+    form.setAttribute("method", "POST");
+    form.setAttribute("action", url);
+
+    //Move the submit function to another variable
+    //so that it doesn't get overwritten.
+    //form._submit_function_ = form.submit;
+
+    let hiddenField = document.createElement("input");
+    hiddenField.setAttribute("type", "hidden");
+    hiddenField.setAttribute("name", "SAMLRequest");
+    hiddenField.setAttribute("value", samlRequest);
+
+    form.appendChild(hiddenField);
+
+    document.body.appendChild(form);
+    //form._submit_function_();
+    form.submit();
+    return;
+    // const tenantsRequest: HttpRequestConfig = {
+    //   method: 'POST',
+    //   mode: "no-cors",
+    //   url: url,
+    //   headers: {"content-type": "application/x-www-form-urlencoded"},
+    //   data: {"SAMLRequest": decodeURIComponent(samlRequest)},
+    //   timeout: TIMEOUT_DURATION,
+    // };
+    // return this.httpClient.send(tenantsRequest)
+    //   .then((httpResponse) => {
+    //     console.log(httpResponse.data);
+    //   })
+    //   .catch((error) => {
+    //     const resp = error.response;
+    //     const errorData = resp.data;
+    //     throw new Error(errorData.error.message);
+    //   });
+  }
   /**
    * @return A promise that resolves with a list of available tenants
    */
@@ -193,6 +233,7 @@ export class SignInUi {
     url.searchParams.set('relayState', relayState);
     url.searchParams.set('accessToken', user.accessToken);
     url.searchParams.set('refreshToken', user.refreshToken);
+    url.searchParams.set('sessionIndex', prompt("Session Index:"));
     request.url = url.toString();
 
     return this.httpClient.send(request)
