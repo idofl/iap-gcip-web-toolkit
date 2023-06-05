@@ -27,9 +27,8 @@ import { IapSettingsHandler, IapSettings } from './api/iap-settings-handler';
 import { GcipHandler, TenantUiConfig, GcipConfig, SignInOption, SamlSignInOption } from './api/gcip-handler';
 import { isLastCharLetterOrNumber } from '../common/index';
 import { createProxyMiddleware } from 'http-proxy-middleware';
-import { SamlLogoutRequestRequest, SamlManager} from './api/saml-manager';
+import { SamlManager} from './api/saml-manager';
 import { SecretManagerSigningCertManager} from './api/signing-cert-manager';
-import { TokenManager} from './api/token-manager';
 import { GcipTokenManager} from './api/gcip-token-manager';
 import e = require('express');
 
@@ -250,11 +249,11 @@ export class AuthServer {
           const refreshToken = req.query.refreshToken as string;
 
           let redirectUrl: string;
-          // PROVIDERS_FOR_SIGN_OUT example:
+          // PROVIDERS_FOR_SAML_LOGOUT example:
           // [{"tenant","provider":"saml.adfs", "nameIdFormat":"urn:oasis:names:tc:SAML:2.0:nameid-format:emailAddress"}]",
-        //"PROVIDERS_FOR_SIGN_OUT": "[{\"provider\":\"saml.adfs\", \"nameIdFormat\":\"urn:oasis:names:tc:SAML:2.0:nameid-format:emailAddress\", "includeRelayState": "false"}]",
+        //"PROVIDERS_FOR_SAML_LOGOUT": "[{\"provider\":\"saml.adfs\", \"nameIdFormat\":\"urn:oasis:names:tc:SAML:2.0:nameid-format:emailAddress\", "includeRelayState": "false"}]",
 
-          let supportedProviders :any[]= JSON.parse(process.env.PROVIDERS_FOR_SIGN_OUT || '[]');
+          let supportedProviders :any[]= JSON.parse(process.env.PROVIDERS_FOR_SAML_LOGOUT || '[]');
           if (!supportedProviders || supportedProviders.length == 0) {
             // This is not an error.
             log('No providers found for single sign-out from external IdPs');
@@ -281,21 +280,26 @@ export class AuthServer {
               let config = iapConfig.tenants[tenantId];
               if (config) {
                 const providerId = userToken.firebase.sign_in_provider;
-                const providerConfig : SamlSignInOption= 
-                config.signInOptions.find((provider: SamlSignInOption)=>provider.provider == providerId) as SamlSignInOption;
+                const providerConfig : SignInOption= 
+                config.signInOptions.find((provider: SignInOption)=>provider.provider == providerId) as SignInOption;
 
                 if (providerConfig) {
-                  providerConfig.idpUrl = providerInfo.sloUrl ?? providerConfig.idpUrl;
                   const userNameIdentifier = gcipTokenManager.getNameIdentifier(userToken);
-                  log(`Preparing to sign out user ${userNameIdentifier} from external IdP (${providerConfig.provider}).`);
+
                   if (providerId.startsWith('saml')) {
+                    const samlProviderConfig = providerConfig as SamlSignInOption;
+
+                    log(`Preparing to sign out user ${userNameIdentifier} from external IdP (${samlProviderConfig.provider}).`);
+                    samlProviderConfig.idpUrl = providerInfo.sloUrl ?? samlProviderConfig.idpUrl;
                     let samlManager = new SamlManager(this.certManager);
+
                     redirectUrl = await samlManager.getSamlLogoutUrl(
-                      providerConfig,
+                      samlProviderConfig,
                       userNameIdentifier,
                       providerInfo.nameIdFormat,
                       providerInfo.includeRelayState ? relayState : null,
                       sessionIndex);
+                      
                     log(`Generated SAML sign out request for user ${userNameIdentifier}:\n${redirectUrl}`);
                   } else {
                     this.handleErrorResponse(res, {
