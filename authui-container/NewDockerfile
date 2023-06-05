@@ -1,0 +1,26 @@
+FROM gcr.io/gcip-iap/authui:latest
+
+# Install openssl
+RUN apt-get -y update && apt-get -y install openssl
+
+# Extend packages.js
+RUN npm install @google-cloud/secret-manager saml2-js @types/saml2-js pem-promise jsonwebtoken @types/jsonwebtoken request-promise
+RUN npm install --only=production
+
+# Extend server code (./server)
+COPY server/api/gcip-token-manager.ts ./server/api/
+COPY server/api/saml-manager.ts ./server/api/
+COPY server/api/signing-cert-manager.ts ./server/api/
+
+# Extend client code (./src)
+
+# Overwrite problematic files.
+COPY server/api/gcip-handler.ts ./server/api/
+COPY server/auth-server.ts ./server
+COPY src/sign-in-ui.ts ./src
+
+
+# Rebundle
+RUN npm update webpack-cli
+RUN npm run bundle
+

@@ -16,9 +16,6 @@
 # https://hub.docker.com/_/node
 FROM node:19-slim
 
-# Install openssl
-RUN apt-get -y update && apt-get -y install openssl
-
 # Create and change to the app directory.
 WORKDIR /usr/src/app
 
