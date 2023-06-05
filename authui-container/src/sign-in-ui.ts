@@ -114,7 +114,7 @@ export class SignInUi {
       .then((url)=>{
         if (url) {
           console.log(url);
-          //window.location.href = url;
+          window.location.href = url;
           //this.sendSignoutRequest(new URL(url));
         } else {
           // Log the hosted UI version.
@@ -233,7 +233,7 @@ export class SignInUi {
     url.searchParams.set('relayState', relayState);
     url.searchParams.set('accessToken', user.accessToken);
     url.searchParams.set('refreshToken', user.refreshToken);
-    url.searchParams.set('sessionIndex', prompt("Session Index:"));
+    //url.searchParams.set('sessionIndex', prompt("Session Index:"));
     request.url = url.toString();
 
     return this.httpClient.send(request)

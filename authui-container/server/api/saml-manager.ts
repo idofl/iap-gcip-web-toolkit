@@ -12,18 +12,13 @@
  * limitations under the License.
  */
 
-import crypto = require('crypto');
-import builder = require('xmlbuilder2');
-import {v4 as uuidv4} from 'uuid';
-import {SignedXml, FileKeyInfo} from 'xml-crypto';
-import zlib = require('zlib');
-import { SignInOption, SamlSignInOption } from './gcip-handler';
+import * as saml2 from 'saml2-js';
+import { SamlSignInOption } from './gcip-handler';
 import { SigningCertManager} from './signing-cert-manager';
 
 /** Interface defining a SAML request handler */
 export interface SamlRequestHandler {
-  simpleSignRequest(valueToSign: Buffer, privateKey: Buffer): string;
-  getSamlLogoutUrl(providerConfig: SignInOption, nameIdentifier: string, nameIdFormat: string, relayState: string, sessionIndex: string): Promise<string>;
+  getSamlLogoutUrl(providerConfig: SamlSignInOption, nameIdentifier: string, nameIdFormat: string, relayState: string, sessionIndex: string): Promise<string>;
 }
 
 export class SamlLogoutRequestRequest {
@@ -44,52 +39,8 @@ export class SamlManager implements SamlRequestHandler {
     this.certManager = certManager;
   }
 
-  simpleSignRequest(valueToSign: Buffer, privateKey: Buffer): string {
-    const signer = crypto.createSign('RSA-SHA256');
-    signer.update(valueToSign);
-    const signature = signer.sign(privateKey, 'base64');
-  
-    return signature;
-  }
-
-  private xmlSignRequest(
-    xmlToSign: string, 
-    samlMessageName: string, 
-    attributeToSign: string, 
-    privateKey: Buffer, 
-    publicKey: Buffer): string {
-
-    var sign = new SignedXml();
-    sign.addReference(`//*[local-name(.)="${samlMessageName}"]`,
-      [
-        "http://www.w3.org/2000/09/xmldsig#enveloped-signature",
-        "http://www.w3.org/2001/10/xml-exc-c14n#"
-      ],
-      "http://www.w3.org/2001/04/xmlenc#sha256");
-  
-    sign.keyInfoProvider = {
-      getKey(keyInfo?: Node): Buffer {
-        return publicKey;
-      },
-      getKeyInfo(key: string, prefix: string): string {
-        prefix = prefix ? prefix + ':' : prefix;
-        return `<${prefix}X509Data><${prefix}X509Certificate>${publicKey}</${prefix}X509Certificate></${prefix}X509Data>`;
-      },
-      file: null
-    }
-    sign.signingKey = privateKey;
-    sign.canonicalizationAlgorithm = "http://www.w3.org/2001/10/xml-exc-c14n#";
-    sign.signatureAlgorithm = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256";
-    sign.computeSignature(xmlToSign,  {
-        prefix: "ds",
-        location: { reference: `//*[local-name(.)="${attributeToSign}"]`, action: "after" },
-      });
-  
-    return sign.getSignedXml();
-  }
-
   async getSamlLogoutUrl(
-    providerConfig: SignInOption, 
+    providerConfig: SamlSignInOption, 
     nameIdentifier: string, 
     nameIdFormat: string, 
     relayState: string = null, 
@@ -110,98 +61,50 @@ export class SamlManager implements SamlRequestHandler {
     samlLogoutRequestOptions.nameIdFormat = nameIdFormat;
     samlLogoutRequestOptions.sessionIndex = sessionIndex;
     let samlLogoutRequest: string = 
-      this.createSamlLogoutRequest(samlLogoutRequestOptions);
+      await this.createSamlLogoutRequest(samlLogoutRequestOptions);
 
     return samlLogoutRequest;
   }
 
-  private createSamlLogoutRequest(request: SamlLogoutRequestRequest): string {
-      // Create the SAML LogoutRequest
-    let xmlString = this.createSamlRequestXml(
-      request.destination,
-      request.issuer,
-      request.nameId,
-      request.nameIdFormat,
-      request.sessionIndex,
-    );
-  
-    // Add XML Signature to the SAML message
-    const samlMessage = this.xmlSignRequest(
-      xmlString,
-      'LogoutRequest',
-      'Issuer',
-      request.privateKey,
-      request.publicKey
-    );
-  
-    // Encode the SAML request to send it in a URL
-    const samlMessageEncoded = this.deflateAndEncodeString(samlMessage);
-  
-    // Prepare SAML request for signing SAMLRequest=value[&RelayState=value]&SigAlg=value
-    // https://docs.oasis-open.org/security/saml/v2.0/saml-bindings-2.0-os.pdf (3.4.4.1)
-    const sigValue = encodeURIComponent('http://www.w3.org/2001/04/xmldsig-more#rsa-sha256');
-    
-    let samlRequestValue;
-    if (request.relayState) {
-      samlRequestValue = Buffer.from(`SAMLRequest=${samlMessageEncoded}&RelayState=${encodeURIComponent(request.relayState)}&SigAlg=${sigValue}`);
-    } else {
-      samlRequestValue = Buffer.from(`SAMLRequest=${samlMessageEncoded}&SigAlg=${sigValue}`);
-    }
-    const signature = this.simpleSignRequest(samlRequestValue, request.privateKey);
-    const signatureEncoded = encodeURIComponent(signature);    
+  private async createSamlLogoutRequest(request: SamlLogoutRequestRequest): Promise<string> {
+    const sp_options = {
+      entity_id: request.issuer,
+      private_key: request.privateKey.toString(),
+      certificate: request.publicKey.toString(),
+      assert_endpoint: '',
+    };
+    const sp = new saml2.ServiceProvider(sp_options);
 
-    let samlRequestUrl: string = samlRequestValue + `&signature=${signatureEncoded}`;
+    const idp_options = {
+      sso_login_url: '',
+      sso_logout_url: request.destination,
+      assert_endpoint: '',
+      certificates: '',
+    };
+    const idp = new saml2.IdentityProvider(idp_options);
 
-    const logoutUrl = `${request.destination}?${samlRequestUrl}`;
-    return logoutUrl;
-  }
-
-  private createSamlRequestXml(
-    destination: string, 
-    issuer: string, 
-    nameId: string, 
-    nameIdFormat: string =null,
-    sessionIndex: string =null) {
+    let options = {
+      name_id: request.nameId,
+      sign_get_request: true,
+      session_index: request.sessionIndex,
+      relay_state: request.relayState,
+    };
   
-    const issueTime = new Date();
+    if (!options.session_index) 
+      delete options.session_index;
 
-    const xml = builder.create(
-      { 
-        version: '1.0',
-        namespaceAlias: { 
-          samlp: 'urn:oasis:names:tc:SAML:2.0:protocol',
-          saml: 'urn:oasis:names:tc:SAML:2.0:assertion' } 
+    if (!options.relay_state) 
+      delete options.relay_state;
+
+    let func = new Promise<string>((resolve) => {
+      sp.create_logout_request_url(idp, options, function(err: any, logout_url: string): void {
+        if (err != null)
+          resolve(null)
+        else
+          resolve(logout_url);
       })
-      .ele('@samlp', 'samlp:LogoutRequest')
-        .att({
-          ID: '_' + uuidv4(),
-          Version: '2.0',
-          IssueInstant: issueTime.toISOString().replace(/\.\d+/, ""),
-          NotOnOrAfter: new Date(issueTime.getTime() + 6*60000).toISOString().replace(/\.\d+/, ""),
-          Destination: destination,
-          //Consent: 'urn:oasis:names:tc:SAML:2.0:consent:unspecified'
-        })
-      .ele('@saml', 'saml:Issuer').txt(issuer).up()
-      .ele('@saml', 'saml:NameID').txt(nameId);
+    });
   
-      if (nameIdFormat) {
-        xml.att({
-          Format: nameIdFormat
-        })
-      }
-
-      if (sessionIndex && sessionIndex != '') {
-        xml.up().ele('@samlp', 'samlp:SessionIndex').txt(sessionIndex);
-      }
-
-    return xml.up().end({ prettyPrint: true });
-  }
-
-  private deflateAndEncodeString(valueToSign: string) : string{
-    const defaltedString: Buffer = zlib.deflateRawSync(valueToSign);
-    const base64String: string = Buffer.from(defaltedString).toString('base64');
-    const uriEncodedString: string = encodeURIComponent(base64String);
-  
-    return uriEncodedString;
+    return func;
   }
 }
