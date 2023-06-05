@@ -29,7 +29,8 @@ import { isLastCharLetterOrNumber } from '../common/index';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { SamlLogoutRequestRequest, SamlManager} from './api/saml-manager';
 import { SecretManagerSigningCertManager} from './api/signing-cert-manager';
-import { GcipTokenManager, TokenManager} from './api/token-manager';
+import { TokenManager} from './api/token-manager';
+import { GcipTokenManager} from './api/gcip-token-manager';
 import e = require('express');
 
 // Defines the Auth server OAuth scopes needed for internal usage.
