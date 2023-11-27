@@ -104,9 +104,9 @@ export class SignInUi {
 
         const ciapParams = new URL(window.location.href).searchParams;
         if (ciapParams.get("mode") == "signout") {
-          // Retrieve list of tenants
-          return this.getAvailableTenants(ciapParams.get("redirect_uri"), ciapParams.get("state"))
-            .then((tenants) => this.signOutByTenants(tenants, ciapParams.get("apiKey")));
+          return this.signOutByTenants(
+            this.getAvailableTenants(configs),
+            ciapParams.get("apiKey"));
         } else {
           return null;
         }
@@ -200,24 +200,19 @@ export class SignInUi {
     //   });
   }
   /**
-   * @return A promise that resolves with a list of available tenants
+   * @return A function that returns a list of available tenants
    */
-  private getAvailableTenants(iapUrl: string, state: string) : Promise<string[]> {
-    const tenantsRequest: HttpRequestConfig = {
-      method: 'POST',
-      url: iapUrl,
-      data: {state: state},
-      timeout: TIMEOUT_DURATION,
+  private getAvailableTenants(config: UiConfig) : string[] {
+    var tenants = [];
+    for (const apiKey in config) {
+      var tenantsConfig = config[apiKey].tenants;
+      for (const tenant in tenantsConfig) {
+        tenants.push(tenant);
+      }
+      break;
     };
-    return this.httpClient.send(tenantsRequest)
-      .then((httpResponse) => {
-        return httpResponse.data.tenantIds as string[];
-      })
-      .catch((error) => {
-        const resp = error.response;
-        const errorData = resp.data;
-        throw new Error(errorData.error.message);
-      });
+
+    return tenants;
   }
 
   /**
