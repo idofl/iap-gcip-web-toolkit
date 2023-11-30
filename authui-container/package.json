@@ -22,6 +22,7 @@
   "dependencies": {
     "@google-cloud/secret-manager": "^4.2.1",
     "@types/saml2-js": "^3.0.1",
+    "cors": "^2.8.5",
     "express": "^4.17.1",
     "http-proxy-middleware": "^2.0.6",
     "https": "^1.0.0",
