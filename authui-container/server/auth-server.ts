@@ -30,7 +30,7 @@ import { createProxyMiddleware } from 'http-proxy-middleware';
 import { SamlManager} from './api/saml-manager';
 import { SecretManagerSigningCertManager} from './api/signing-cert-manager';
 import { GcipTokenManager} from './api/gcip-token-manager';
-import e = require('express');
+import * as extension from './extensions';
 
 // Defines the Auth server OAuth scopes needed for internal usage.
 // This is used to query APIs to determine the default config.
@@ -161,6 +161,11 @@ export class AuthServer {
    * Initializes the server endpoints.
    */
   private init() {
+    var cors = require('cors')
+    //this.app.options('*', cors());
+    this.app.use(cors());
+  
+
     this.app.enable('trust proxy');
     // Oauth handler widget code.
     // Proxy these requests to <project>.firebaseapp.com.
@@ -225,6 +230,22 @@ export class AuthServer {
         });
       }
 
+      this.app.post('/handleRedirect',async (req: express.Request, res: express.Response) => {
+        if (!isNonNullObject(req.body) ||
+          Object.keys(req.body).length === 0) {
+          this.handleErrorResponse(res, ERROR_MAP.INVALID_ARGUMENT);
+        } else {
+          const iapConfigs: UiConfig = await this.getFallbackConfig(req.hostname);
+          const redirectUrl = req.body.state as string;
+          res.set('Content-Type', 'application/json');
+          res.send(JSON.stringify({
+            originalUri: redirectUrl,
+            targetUri: redirectUrl,
+            tenantIds: Object.keys(Object.values(iapConfigs)[0].tenants),
+          }));
+        }
+      });
+
       this.app.post('/__/saml_logout_response', async (req: express.Request, res: express.Response) => {
         if (!isNonNullObject(req.body) ||
           Object.keys(req.body).length === 0) {
@@ -243,12 +264,11 @@ export class AuthServer {
         try {
           const relayState = req.query.relayState as string;
           const sessionIndex = req.query.sessionIndex as string;
-          let tenantId = req.query.tid as string;
           const apiKey = req.query.apiKey as string;
           const accessToken = req.query.accessToken as string;
           const refreshToken = req.query.refreshToken as string;
 
-          let redirectUrl: string;
+          let response = null;
           // PROVIDERS_FOR_SAML_LOGOUT example:
           // [{"tenant","provider":"saml.adfs", "nameIdFormat":"urn:oasis:names:tc:SAML:2.0:nameid-format:emailAddress"}]",
         //"PROVIDERS_FOR_SAML_LOGOUT": "[{\"provider\":\"saml.adfs\", \"nameIdFormat\":\"urn:oasis:names:tc:SAML:2.0:nameid-format:emailAddress\", "includeRelayState": "false"}]",
@@ -259,15 +279,16 @@ export class AuthServer {
             log('No providers found for single sign-out from external IdPs');
           }
 
+          const gcipTokenManager = new GcipTokenManager(accessToken, refreshToken, apiKey);
+          const userToken = await gcipTokenManager.verifyAccessToken();
+
+          let tenantId = userToken.firebase.tenant as string;
           // Set default tenant if no tenant was provided
           if (!tenantId) {
             tenantId = '_';
           }
 
           // Verify the access token is valid before proceeding with the sign out
-          const gcipTokenManager = new GcipTokenManager(accessToken, refreshToken, apiKey);
-          const userToken = await gcipTokenManager.verifyAccessToken();
-
           // Verify the provider is configured for IdP sign out
           const providerId = userToken.firebase.sign_in_provider;
           const providerInfo = supportedProviders.find((config) => (config.tenantId || '_') == tenantId && config.provider == providerId);
@@ -293,13 +314,19 @@ export class AuthServer {
                     samlProviderConfig.idpUrl = providerInfo.sloUrl ?? samlProviderConfig.idpUrl;
                     let samlManager = new SamlManager(this.certManager);
 
-                    redirectUrl = await samlManager.getSamlLogoutUrl(
+                    const redirectUrl = await samlManager.getSamlLogoutUrl(
                       samlProviderConfig,
                       userNameIdentifier,
                       providerInfo.nameIdFormat,
                       providerInfo.includeRelayState ? relayState : null,
                       sessionIndex);
-                      
+
+                    response = {
+                        method: 'Redirect',
+                        url: redirectUrl,
+                        data: null
+                    }
+
                     log(`Generated SAML sign out request for user ${userNameIdentifier}:\n${redirectUrl}`);
                   } else {
                     this.handleErrorResponse(res, {
@@ -309,7 +336,7 @@ export class AuthServer {
                           message: 'Only SAML sign out is supported at this time',
                       }
                     });
-                    log(`Could not generate signout request for user ${userNameIdentifier}:\n${redirectUrl}`);
+                    log(`Could not generate signout request for user ${userNameIdentifier}: Unsupported provider`);
                   }
                 } else {
                   this.handleErrorResponse(res, {
@@ -341,7 +368,7 @@ export class AuthServer {
             }
           }
           res.set('Content-Type', 'application/json');
-          res.send(JSON.stringify(redirectUrl));
+          res.send(JSON.stringify(response));
         } catch (err) {
           log(err);
           this.handleError(res, err);

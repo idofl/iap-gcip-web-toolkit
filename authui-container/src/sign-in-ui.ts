@@ -103,20 +103,20 @@ export class SignInUi {
         this.ciapAuth = new (ciap.Authentication as any)(handler, undefined, HOSTED_UI_VERSION);
 
         const ciapParams = new URL(window.location.href).searchParams;
+        const apiKey = ciapParams.get("apiKey");
+
         if (ciapParams.get("mode") == "signout") {
-          return this.signOutByTenants(
-            this.getAvailableTenants(configs),
-            ciapParams.get("apiKey"));
-        } else {
-          return null;
+          // Attempt to sign-out from external IdPs.
+          // If POST is used, then the code will continue after all tenants have signed out
+          // If Redirect is used, then the page will be redirected to the IdP, and will load again
+          // after signout is complete
+          return this.signOutAllUsers(
+            apiKey);
         }
+        return true;
       })
-      .then((url)=>{
-        if (url) {
-          console.log(url);
-          window.location.href = url;
-          //this.sendSignoutRequest(new URL(url));
-        } else {
+      .then((continueWithLoading)=>{
+        if (continueWithLoading) {
           // Log the hosted UI version.
           this.ciapAuth.start();
         }
@@ -127,119 +127,56 @@ export class SignInUi {
       });
   }
 
-  private signOutByTenants(tenants: string[], apiKey: string): Promise<string> {
-    // Recursivly attempt to sign out tenants
-    // Return when first tenant to sign out is found or no tenants to sign out
-    const tenant = tenants.pop();
-    if (tenant) {
-      return this.signOutByTenant(tenant, apiKey)
-        .then((url) => {
-          // Stop the recursion on first valid URL
-          return url ?? this.signOutByTenants(tenants, apiKey);
-        });
-    }
-    return Promise.resolve(null);;
-  }
+  private async signOutAllUsers(apiKey: string): Promise<Boolean> {
+    // Use a copy of the key array, because we are removing items while iterating
+    const userKeys = Object.keys(window.sessionStorage);
+    let continueWithAppLoading = true;
 
-  private signOutByTenant(tenant: string, apiKey: string): Promise<string> {
-    const tenantId = tenant.startsWith('_') ? '_' : tenant;
-    const userKey = `signed-in-user:${apiKey}:${tenantId}`;
-    // Get cached user before it is being signed out from GCIP
-    const signedInUser = JSON.parse(window.sessionStorage.getItem(userKey));
-    if (signedInUser) {
-      // First clear the cache, to prevent endless loops 
-      // of signing out the user from the IdP
-      window.sessionStorage.removeItem(userKey);
-      // Sign out the user from the first tenant we find
-      // Next tenant will sign out after returning from redirect
-      return this.getIdpSignOutUrl(signedInUser, apiKey, tenantId);
-    }
-    return Promise.resolve(null);
-  }
-
-  private sendSignoutRequest(redirectUrl: URL) : Promise<void> {
-
-    let samlRequest = redirectUrl.searchParams.get("SAMLRequest");
-    let url = redirectUrl.href.replace(redirectUrl.search,"");
-
-    let form = document.createElement("form");
-    form.setAttribute("method", "POST");
-    form.setAttribute("action", url);
-
-    //Move the submit function to another variable
-    //so that it doesn't get overwritten.
-    //form._submit_function_ = form.submit;
-
-    let hiddenField = document.createElement("input");
-    hiddenField.setAttribute("type", "hidden");
-    hiddenField.setAttribute("name", "SAMLRequest");
-    hiddenField.setAttribute("value", samlRequest);
-
-    form.appendChild(hiddenField);
-
-    document.body.appendChild(form);
-    //form._submit_function_();
-    form.submit();
-    return;
-    // const tenantsRequest: HttpRequestConfig = {
-    //   method: 'POST',
-    //   mode: "no-cors",
-    //   url: url,
-    //   headers: {"content-type": "application/x-www-form-urlencoded"},
-    //   data: {"SAMLRequest": decodeURIComponent(samlRequest)},
-    //   timeout: TIMEOUT_DURATION,
-    // };
-    // return this.httpClient.send(tenantsRequest)
-    //   .then((httpResponse) => {
-    //     console.log(httpResponse.data);
-    //   })
-    //   .catch((error) => {
-    //     const resp = error.response;
-    //     const errorData = resp.data;
-    //     throw new Error(errorData.error.message);
-    //   });
-  }
-  /**
-   * @return A function that returns a list of available tenants
-   */
-  private getAvailableTenants(config: UiConfig) : string[] {
-    var tenants = [];
-    for (const apiKey in config) {
-      var tenantsConfig = config[apiKey].tenants;
-      for (const tenant in tenantsConfig) {
-        tenants.push(tenant);
+    for (var i = 0; i < userKeys.length; i++) {
+      if (userKeys[i].startsWith('signed-in-user:'))
+      {
+        let userKey = userKeys[i];
+        // Get cached user before it is being signed out from GCIP
+        const signedInUser = JSON.parse(window.sessionStorage.getItem(userKey));
+        if (signedInUser) {
+          // First clear the cache, to prevent endless loops
+          // of signing out the user from the IdP
+          window.sessionStorage.removeItem(userKey);
+          // Sign out the user from the first tenant we find
+          // Next tenant will sign out after returning from redirect
+          const signOutInfo = await this.getIdpSignOutInfo(signedInUser, apiKey);
+          if (signOutInfo && signOutInfo.method == 'Redirect') {
+            continueWithAppLoading = true;
+            // Current only redirect is supported
+            window.location.href = signOutInfo.url;
+            // For redirects - stop signing out users because we can 
+            // only redirect once. Other users will be signed out
+            // after the completion of the current sign out.
+            break;
+          }
+        }
       }
-      break;
-    };
+    }
 
-    return tenants;
+    return continueWithAppLoading;
   }
 
   /**
    * @return A promise that resolves with the redirect URL for
    * IdP signout
    */
-  private getIdpSignOutUrl(user: any, apiKey: string, tenantId: string): Promise<string> {
+  private async getIdpSignOutInfo(user: any, apiKey: string): Promise<any> {
     const relayState = btoa(window.location.href);
     const request = deepCopy(GET_IDP_SIGNOUT_PARAMS);
     const url = new URL(request.url, window.location.href);
     url.searchParams.set('apiKey', apiKey);
-    url.searchParams.set('tid', tenantId);
     url.searchParams.set('relayState', relayState);
     url.searchParams.set('accessToken', user.accessToken);
     url.searchParams.set('refreshToken', user.refreshToken);
-    //url.searchParams.set('sessionIndex', prompt("Session Index:"));
     request.url = url.toString();
 
-    return this.httpClient.send(request)
-      .then((httpResponse) => {
-        return httpResponse.data as string;
-      })
-      .catch((error) => {
-        const resp = error.response;
-        const errorData = resp.data;
-        throw new Error(errorData.error.message);
-      });
+    const httpResponse = await this.httpClient.send(request);
+    return httpResponse.data;
   }
 
   /**
