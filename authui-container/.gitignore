@@ -1,0 +1,7 @@
+public/**
+# Ignore certificate files
+*.crt
+*.csr
+*.key
+*.pem
+*.cer
