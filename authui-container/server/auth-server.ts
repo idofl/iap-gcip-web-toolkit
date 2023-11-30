@@ -279,6 +279,7 @@ export class AuthServer {
             log('No providers found for single sign-out from external IdPs');
           }
 
+          // Verify the access token is valid before proceeding with the sign out
           const gcipTokenManager = new GcipTokenManager(accessToken, refreshToken, apiKey);
           const userToken = await gcipTokenManager.verifyAccessToken();
 
@@ -288,7 +289,6 @@ export class AuthServer {
             tenantId = '_';
           }
 
-          // Verify the access token is valid before proceeding with the sign out
           // Verify the provider is configured for IdP sign out
           const providerId = userToken.firebase.sign_in_provider;
           const providerInfo = supportedProviders.find((config) => (config.tenantId || '_') == tenantId && config.provider == providerId);
