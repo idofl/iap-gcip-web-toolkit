@@ -13,7 +13,7 @@
  */
 
 import * as saml2 from 'saml2-js';
-import { SamlSignInOption } from './gcip-handler';
+import { SamlSignInOption } from '../api/gcip-handler';
 import { SigningCertManager} from './signing-cert-manager';
 
 /** Interface defining a SAML request handler */

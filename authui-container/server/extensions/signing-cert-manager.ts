@@ -53,6 +53,7 @@ export class SecretManagerSigningCertManager implements SigningCertManager {
     
     response = await this.client.accessSecretVersion({name: this.passName})
     this.pass = Buffer.from(response[0].payload.data);
+    console.log("Loaded signing certs for SAML signout");
   }
 
   async getPublicKey(keyOnly: boolean = false): Promise<Buffer>{
