@@ -19,7 +19,6 @@ import { UiConfig } from '../../common/config';
 import { ERROR_MAP } from '../utils/error';
 
 import express = require('express');
-import { auth } from 'firebaseui';
 
 export class iapRedirectExtension implements AuthServerExtension {
   private authServer : AuthServer; 
@@ -29,7 +28,7 @@ export class iapRedirectExtension implements AuthServerExtension {
 
     this.authServer = authServer;
 
-    app.post('/handleRedirect',async (req: express.Request, res: express.Response) => {
+    app.post('/handleRedirect', async (req: express.Request, res: express.Response) => {
       if (!isNonNullObject(req.body) ||
         Object.keys(req.body).length === 0) {
           this.authServer.handleErrorResponse(res, ERROR_MAP.INVALID_ARGUMENT);

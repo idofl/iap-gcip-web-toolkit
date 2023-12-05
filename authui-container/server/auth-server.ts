@@ -13,6 +13,7 @@
  */
 
 import express = require('express');
+import cors = require('cors');
 import bodyParser = require('body-parser');
 import * as templates from  './templates';
 import path = require('path');
@@ -155,12 +156,7 @@ export class AuthServer {
   /**
    * Initializes the server endpoints.
    */
-  private init() {
-    var cors = require('cors')
-    //this.app.options('*', cors());
-    this.app.use(cors());
-  
-
+  private init() {  
     this.app.enable('trust proxy');
     // Oauth handler widget code.
     // Proxy these requests to <project>.firebaseapp.com.
@@ -233,7 +229,8 @@ export class AuthServer {
     this.app.use('/static', express.static(path.join(__dirname, '../public')));
 
     // IAP sign-in flow.
-    this.app.get('/', (req: express.Request, res: express.Response) => {
+    this.app.options('/', cors());
+    this.app.get('/', cors(), (req: express.Request, res: express.Response) => {
       // Serve content for signed in user.
       return serveContentForSignIn(req, res);
     });
@@ -321,7 +318,6 @@ export class AuthServer {
         });
     });
   }
-
 
   /** @return Destination where requests with path "__/auth/" are proxied to. */
   private fetchAuthDomainProxyTarget(): Promise<string> {
