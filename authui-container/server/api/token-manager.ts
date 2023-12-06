@@ -32,8 +32,7 @@ export interface Credential {
 
 /** Metadata server access token endpoint. */
 const METADATA_SERVER_ACCESS_TOKEN_URL =
-    'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token';
-
+'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token';
 /** The default OAuth scope to include in the access token. */
 const DEFAULT_OAUTH_SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
 /** Time offset in milliseconds for forcing a refresh before a token expires. */
