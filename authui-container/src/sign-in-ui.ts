@@ -141,7 +141,7 @@ export class SignInUi {
           // Next tenant will sign out after returning from redirect
           const signOutInfo = await this.getIdpSignOutInfo(signedInUser, apiKey);
           if (signOutInfo && signOutInfo.method == 'Redirect') {
-            continueWithAppLoading = true;
+            continueWithAppLoading = false;
             // Current only redirect is supported
             window.location.href = signOutInfo.url;
             // For redirects - stop signing out users because we can 
