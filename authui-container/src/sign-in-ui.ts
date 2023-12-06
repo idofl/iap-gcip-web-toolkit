@@ -20,6 +20,7 @@ import {UiConfig} from '/../common/config';
 import * as firebaseui from 'firebaseui';
 // Import GCIP/IAP module.
 import * as ciap from 'gcip-iap';
+import {SignInUiStartWrapper} from './sign-in-ui-start-wrapper';
 
 // The expected network timeout duraiton in milliseconds.
 const TIMEOUT_DURATION = 30000;
@@ -27,12 +28,6 @@ const TIMEOUT_DURATION = 30000;
 const GET_CONFIG_PARAMS: HttpRequestConfig = {
   method: 'GET',
   url: '/config',
-  timeout: TIMEOUT_DURATION,
-};
-// The /__/signout HTTP request configuration.
-const GET_IDP_SIGNOUT_PARAMS: HttpRequestConfig = {
-  method: 'GET',
-  url: '/__/signout',
   timeout: TIMEOUT_DURATION,
 };
 // The current version of the hosted UI.
@@ -97,81 +92,13 @@ export class SignInUi {
 
         this.ciapAuth = new (ciap.Authentication as any)(handler, undefined, HOSTED_UI_VERSION);
 
-        const ciapParams = new URL(window.location.href).searchParams;
-        const apiKey = ciapParams.get("apiKey");
-
-        if (ciapParams.get("mode") == "signout") {
-          // Attempt to sign-out from external IdPs.
-          // If POST is used, then the code will continue after all tenants have signed out
-          // If Redirect is used, then the page will be redirected to the IdP, and will load again
-          // after signout is complete
-          return this.signOutAllUsers(
-            apiKey);
-        }
-        return true;
-      })
-      .then((continueWithLoading)=>{
-        if (continueWithLoading) {
-          // Log the hosted UI version.
-          this.ciapAuth.start();
-        }
+        const signInWrapper = new SignInUiStartWrapper();
+        return signInWrapper.start(this.ciapAuth, config);
       })
       .catch((error) => {
         this.handlerError(error);
         throw error;
       });
-  }
-
-  private async signOutAllUsers(apiKey: string): Promise<Boolean> {
-    // Use a copy of the key array, because we are removing items while iterating
-    const userKeys = Object.keys(window.sessionStorage);
-    let continueWithAppLoading = true;
-
-    for (var i = 0; i < userKeys.length; i++) {
-      if (userKeys[i].startsWith('signed-in-user:'))
-      {
-        let userKey = userKeys[i];
-        // Get cached user before it is being signed out from GCIP
-        const signedInUser = JSON.parse(window.sessionStorage.getItem(userKey));
-        if (signedInUser) {
-          // First clear the cache, to prevent endless loops
-          // of signing out the user from the IdP
-          window.sessionStorage.removeItem(userKey);
-          // Sign out the user from the first tenant we find
-          // Next tenant will sign out after returning from redirect
-          const signOutInfo = await this.getIdpSignOutInfo(signedInUser, apiKey);
-          if (signOutInfo && signOutInfo.method == 'Redirect') {
-            continueWithAppLoading = false;
-            // Current only redirect is supported
-            window.location.href = signOutInfo.url;
-            // For redirects - stop signing out users because we can 
-            // only redirect once. Other users will be signed out
-            // after the completion of the current sign out.
-            break;
-          }
-        }
-      }
-    }
-
-    return continueWithAppLoading;
-  }
-
-  /**
-   * @return A promise that resolves with the redirect URL for
-   * IdP signout
-   */
-  private async getIdpSignOutInfo(user: any, apiKey: string): Promise<any> {
-    const relayState = btoa(window.location.href);
-    const request = deepCopy(GET_IDP_SIGNOUT_PARAMS);
-    const url = new URL(request.url, window.location.href);
-    url.searchParams.set('apiKey', apiKey);
-    url.searchParams.set('relayState', relayState);
-    url.searchParams.set('accessToken', user.accessToken);
-    url.searchParams.set('refreshToken', user.refreshToken);
-    request.url = url.toString();
-
-    const httpResponse = await this.httpClient.send(request);
-    return httpResponse.data;
   }
 
   /**
@@ -248,16 +175,16 @@ export class SignInUi {
               this.separatorElement.style.display = 'none';
             }
           },
-          beforeSignInSuccess: (user) => {
-            const tenantId = user.tenantId || '_';
-            const userKey = `signed-in-user:${apiKey}:${tenantId}`; ;
-            window.sessionStorage.setItem(userKey, JSON.stringify({
-              name:user.email, // Store email for debug purposes
-              accessToken: user._delegate.accessToken,
-              refreshToken: user.refreshToken,
-            }));
-            return user;
-          }
+          // beforeSignInSuccess: (user) => {
+          //   const tenantId = user.tenantId || '_';
+          //   const userKey = `signed-in-user:${apiKey}:${tenantId}`; ;
+          //   window.sessionStorage.setItem(userKey, JSON.stringify({
+          //     name:user.email, // Store email for debug purposes
+          //     accessToken: user._delegate.accessToken,
+          //     refreshToken: user.refreshToken,
+          //   }));
+          //   return user;
+          // }
         };
         // Do not trigger immediate redirect in Safari without some user
         // interaction.

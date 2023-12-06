@@ -156,7 +156,7 @@ export class AuthServer {
   /**
    * Initializes the server endpoints.
    */
-  private init() {  
+  private init() {
     this.app.enable('trust proxy');
     // Oauth handler widget code.
     // Proxy these requests to <project>.firebaseapp.com.
@@ -225,7 +225,7 @@ export class AuthServer {
     });
 
     Promise.resolve(AuthServerRegisteredExtensions.getInstance().invokePreProxy(this, this.app));
-    
+
     // Static assets.
     // Note that in production, this is served from dist/server/auth-server.js.
     this.app.use('/static', express.static(path.join(__dirname, '../public')));

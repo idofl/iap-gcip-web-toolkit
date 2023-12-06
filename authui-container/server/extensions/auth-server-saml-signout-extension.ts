@@ -16,7 +16,6 @@ import { AuthServer } from "../auth-server";
 import { AuthServerExtension, AuthServerRegisteredExtensions } from "../auth-server-extension";
 import { isNonNullObject } from '../../common/validator';
 import { ERROR_MAP, ErrorHandlers } from '../utils/error';
-import { GcipTokenManager } from "../api/gcip-token-manager";
 import { SignInOption, SamlSignInOption } from '../api/gcip-handler';
 import { UiConfig } from '../../common/config';
 import { SamlManager} from './saml-manager';
@@ -50,8 +49,17 @@ class samlSignOutExtension implements AuthServerExtension {
         const relayState = req.query.relayState as string;
         const sessionIndex = req.query.sessionIndex as string;
         const apiKey = req.query.apiKey as string;
-        const accessToken = req.query.accessToken as string;
-        const refreshToken = req.query.refreshToken as string;
+        const providerId = req.query.providerId as string;
+        const userNameIdentifier = req.query.nameId as string;
+
+        let tenantId = req.query.tenantId as string;
+        // Set default tenant if no tenant was provided
+        if (!tenantId) {
+          tenantId = '_';
+        }
+
+        //const accessToken = req.query.accessToken as string;
+        //const refreshToken = req.query.refreshToken as string;
 
         let response = null;
         // PROVIDERS_FOR_SAML_LOGOUT example:
@@ -65,19 +73,12 @@ class samlSignOutExtension implements AuthServerExtension {
         }
 
         // Verify the access token is valid before proceeding with the sign out
-        const gcipTokenManager = new GcipTokenManager(accessToken, refreshToken, apiKey);
-        const userToken = await gcipTokenManager.verifyAccessToken();
-
-        let tenantId = userToken.firebase.tenant as string;
-        // Set default tenant if no tenant was provided
-        if (!tenantId) {
-          tenantId = '_';
-        }
+        //const gcipTokenManager = new GcipTokenManager(accessToken, refreshToken, apiKey);
+        //const userToken = await gcipTokenManager.verifyAccessToken();
 
         // Verify the provider is configured for IdP sign out
-        const providerId = userToken.firebase.sign_in_provider;
         const providerInfo = supportedProviders.find((config) => (config.tenantId || '_') == tenantId && config.provider == providerId);
-        if (providerInfo){
+        if (providerInfo) {
           const iapConfigs: UiConfig = await this.authServer.getFallbackConfig(req.hostname);
 
           if (iapConfigs.hasOwnProperty(apiKey)) {
@@ -85,13 +86,10 @@ class samlSignOutExtension implements AuthServerExtension {
             const iapConfig = iapConfigs[apiKey];
             let config = iapConfig.tenants[tenantId];
             if (config) {
-              const providerId = userToken.firebase.sign_in_provider;
               const providerConfig : SignInOption= 
               config.signInOptions.find((provider: SignInOption)=>provider.provider == providerId) as SignInOption;
 
               if (providerConfig) {
-                const userNameIdentifier = gcipTokenManager.getNameIdentifier(userToken);
-
                 if (providerId.startsWith('saml')) {
                   const samlProviderConfig = providerConfig as SamlSignInOption;
 
