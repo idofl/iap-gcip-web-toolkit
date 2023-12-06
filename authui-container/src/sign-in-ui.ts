@@ -175,16 +175,6 @@ export class SignInUi {
               this.separatorElement.style.display = 'none';
             }
           },
-          // beforeSignInSuccess: (user) => {
-          //   const tenantId = user.tenantId || '_';
-          //   const userKey = `signed-in-user:${apiKey}:${tenantId}`; ;
-          //   window.sessionStorage.setItem(userKey, JSON.stringify({
-          //     name:user.email, // Store email for debug purposes
-          //     accessToken: user._delegate.accessToken,
-          //     refreshToken: user.refreshToken,
-          //   }));
-          //   return user;
-          // }
         };
         // Do not trigger immediate redirect in Safari without some user
         // interaction.
