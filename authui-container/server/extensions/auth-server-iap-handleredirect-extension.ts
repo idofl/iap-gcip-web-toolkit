@@ -16,14 +16,21 @@ import { AuthServer } from '../auth-server';
 import { AuthServerExtension, AuthServerRegisteredExtensions } from '../auth-server-extension';
 import { isNonNullObject } from '../../common/validator';
 import { UiConfig } from '../../common/config';
-import { ERROR_MAP } from '../utils/error';
+import { ERROR_MAP, ErrorHandlers } from '../utils/error';
 
 import express = require('express');
+import cors = require('cors');
 
 export class iapRedirectExtension implements AuthServerExtension {
   private authServer : AuthServer; 
 
-  apply(authServer: AuthServer, app: express.Application) : Promise<void> {
+  applyPreProxy(authServer: AuthServer, app: express.Application) : Promise<void> {
+    app.options('/', cors());
+    app.get('/', cors());
+    return;
+  }
+
+  applyPostProxy(authServer: AuthServer, app: express.Application) : Promise<void> {
     console.log("Adding endpoint /handleRedirect to handle IAP signout redirects");
 
     this.authServer = authServer;
@@ -31,7 +38,7 @@ export class iapRedirectExtension implements AuthServerExtension {
     app.post('/handleRedirect', async (req: express.Request, res: express.Response) => {
       if (!isNonNullObject(req.body) ||
         Object.keys(req.body).length === 0) {
-          this.authServer.handleErrorResponse(res, ERROR_MAP.INVALID_ARGUMENT);
+          ErrorHandlers.handleErrorResponse(res, ERROR_MAP.INVALID_ARGUMENT);
       } else {
         const iapConfigs: UiConfig = await this.authServer.getFallbackConfig(req.hostname);
         const redirectUrl = req.body.state as string;

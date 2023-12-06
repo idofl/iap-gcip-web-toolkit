@@ -15,7 +15,8 @@
 import { AuthServer } from "./auth-server";
 
 export interface AuthServerExtension {
-  apply: (authServer : AuthServer, app: Express.Application) => Promise<void>
+  applyPreProxy: (authServer : AuthServer, app: Express.Application) => Promise<void>
+  applyPostProxy: (authServer : AuthServer, app: Express.Application) => Promise<void>
 }
 
 export class AuthServerRegisteredExtensions {
@@ -39,10 +40,17 @@ export class AuthServerRegisteredExtensions {
     this.extensions.push(extension);
   }
 
-  public invoke(authServer : AuthServer, app: Express.Application) : Promise<void> {
+  public invokePreProxy(authServer : AuthServer, app: Express.Application) : Promise<void> {
     // Run through the extensions sequentially
     return this.extensions
-      .map((ext) => ext.apply(authServer, app))
+      .map((ext) => ext.applyPreProxy(authServer, app))
+      .reduce((prev, cur) => prev.then(()=> cur), Promise.resolve());
+  }
+
+  public invokePostProxy(authServer : AuthServer, app: Express.Application) : Promise<void> {
+    // Run through the extensions sequentially
+    return this.extensions
+      .map((ext) => ext.applyPostProxy(authServer, app))
       .reduce((prev, cur) => prev.then(()=> cur), Promise.resolve());
   }
 }

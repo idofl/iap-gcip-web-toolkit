@@ -15,7 +15,7 @@
 import { AuthServer } from "../auth-server";
 import { AuthServerExtension, AuthServerRegisteredExtensions } from "../auth-server-extension";
 import { isNonNullObject } from '../../common/validator';
-import { ERROR_MAP } from '../utils/error';
+import { ERROR_MAP, ErrorHandlers } from '../utils/error';
 import { GcipTokenManager } from "../api/gcip-token-manager";
 import { SignInOption, SamlSignInOption } from '../api/gcip-handler';
 import { UiConfig } from '../../common/config';
@@ -39,20 +39,7 @@ class samlSignOutExtension implements AuthServerExtension {
   private authServer : AuthServer; 
   private certManager: SecretManagerSigningCertManager = new SecretManagerSigningCertManager();
 
-  apply(authServer: AuthServer, app: express.Application) : Promise<void> {
-    console.log("Adding endpoints for SAML signout to external IdPs");
-
-    this.authServer = authServer;
-
-    app.post('/__/saml_logout_response', async (req: express.Request, res: express.Response) => {
-      if (!isNonNullObject(req.body) ||
-        Object.keys(req.body).length === 0) {
-        this.authServer.handleErrorResponse(res, ERROR_MAP.INVALID_ARGUMENT);
-      } else {
-        this.handleRelayStateRedirect(req.body.RelayState, req, res);
-      }
-    });
-
+  applyPreProxy(authServer: AuthServer, app: express.Application) : Promise<void> {
     app.get('/__/saml_logout_response', async (req: express.Request, res: express.Response) => {
       // Use the RelayState to return to the signout URL initially started by IAP
       this.handleRelayStateRedirect(req.query.RelayState as string, req, res);
@@ -127,7 +114,7 @@ class samlSignOutExtension implements AuthServerExtension {
 
                   log(`Generated SAML sign out request for user ${userNameIdentifier}:\n${redirectUrl}`);
                 } else {
-                  this.authServer.handleErrorResponse(res, {
+                  ErrorHandlers.handleErrorResponse(res, {
                     error: {
                         code: 400,
                         status: 'INVALID_ARGUMENT',
@@ -137,7 +124,7 @@ class samlSignOutExtension implements AuthServerExtension {
                   log(`Could not generate signout request for user ${userNameIdentifier}: Unsupported provider`);
                 }
               } else {
-                this.authServer.handleErrorResponse(res, {
+                ErrorHandlers.handleErrorResponse(res, {
                   error: {
                       code: 400,
                       status: 'INVALID_ARGUMENT',
@@ -146,7 +133,7 @@ class samlSignOutExtension implements AuthServerExtension {
                 });
               }
             } else {
-              this.authServer.handleErrorResponse(res, {
+              ErrorHandlers.handleErrorResponse(res, {
                 error: {
                     code: 400,
                     status: 'INVALID_ARGUMENT',
@@ -156,7 +143,7 @@ class samlSignOutExtension implements AuthServerExtension {
             }
           } else {
             // apiKey not found
-            this.authServer.handleErrorResponse(res, {
+            ErrorHandlers.handleErrorResponse(res, {
               error: {
                   code: 400,
                   status: 'INVALID_ARGUMENT',
@@ -169,7 +156,24 @@ class samlSignOutExtension implements AuthServerExtension {
         res.send(JSON.stringify(response));
       } catch (err) {
         log(err);
-        this.authServer.handleError(res, err);
+        ErrorHandlers.handleError(res, err);
+      }
+    });
+
+    return;
+  }
+
+  applyPostProxy(authServer: AuthServer, app: express.Application) : Promise<void> {
+    console.log("Adding endpoints for SAML signout to external IdPs");
+
+    this.authServer = authServer;
+
+    app.post('/__/saml_logout_response', async (req: express.Request, res: express.Response) => {
+      if (!isNonNullObject(req.body) ||
+        Object.keys(req.body).length === 0) {
+          ErrorHandlers.handleErrorResponse(res, ERROR_MAP.INVALID_ARGUMENT);
+      } else {
+        this.handleRelayStateRedirect(req.body.RelayState, req, res);
       }
     });
 
@@ -184,7 +188,7 @@ class samlSignOutExtension implements AuthServerExtension {
         res.redirect(redirectUrl);
         res.end();
       } else {
-        this.authServer.handleErrorResponse(res, {
+        ErrorHandlers.handleErrorResponse(res, {
           error: {
               code: 400,
               status: 'INVALID_ARGUMENT',

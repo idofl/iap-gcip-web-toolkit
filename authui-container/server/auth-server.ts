@@ -20,7 +20,7 @@ import path = require('path');
 import { Server } from 'http';
 import { MetadataServer } from './api/metadata-server';
 import { CloudStorageHandler } from './api/cloud-storage-handler';
-import { ErrorResponse, ERROR_MAP } from '../server/utils/error';
+import { ErrorResponse, ERROR_MAP, ErrorHandlers } from '../server/utils/error';
 import { isNonNullObject } from '../common/validator';
 import { DefaultUiConfigBuilder } from '../common/config-builder';
 import { UiConfig } from '../common/config';
@@ -188,10 +188,10 @@ export class AuthServer {
         this.app.post('/set_admin_config', (req: express.Request, res: express.Response) => {
           if (!req.headers.authorization ||
               req.headers.authorization.split(' ').length <= 1) {
-            this.handleErrorResponse(res, ERROR_MAP.UNAUTHENTICATED);
+                ErrorHandlers.handleErrorResponse(res, ERROR_MAP.UNAUTHENTICATED);
           } else if (!isNonNullObject(req.body) ||
                     Object.keys(req.body).length === 0) {
-            this.handleErrorResponse(res, ERROR_MAP.INVALID_ARGUMENT);
+            ErrorHandlers.handleErrorResponse(res, ERROR_MAP.INVALID_ARGUMENT);
           } else {
             const accessToken = req.headers.authorization.split(' ')[1];
             try {
@@ -204,10 +204,10 @@ export class AuthServer {
                   message: 'Changes successfully saved.',
                 }));
               }).catch((err) => {
-                this.handleError(res, err);
+                ErrorHandlers.handleError(res, err);
               });
             } catch (e) {
-              this.handleErrorResponse(
+              ErrorHandlers.handleErrorResponse(
                 res,
                 {
                   error: {
@@ -220,17 +220,18 @@ export class AuthServer {
           }
         });
 
-        Promise.resolve(AuthServerRegisteredExtensions.getInstance().invoke(this, this.app));
+        Promise.resolve(AuthServerRegisteredExtensions.getInstance().invokePostProxy(this, this.app));
       }
     });
 
+    Promise.resolve(AuthServerRegisteredExtensions.getInstance().invokePreProxy(this, this.app));
+    
     // Static assets.
     // Note that in production, this is served from dist/server/auth-server.js.
     this.app.use('/static', express.static(path.join(__dirname, '../public')));
 
     // IAP sign-in flow.
-    this.app.options('/', cors());
-    this.app.get('/', cors(), (req: express.Request, res: express.Response) => {
+    this.app.get('/', (req: express.Request, res: express.Response) => {
       // Serve content for signed in user.
       return serveContentForSignIn(req, res);
     });
@@ -246,7 +247,7 @@ export class AuthServer {
           res.end(authDomainProxyTarget);
         })
         .catch((err) => {
-          this.handleError(res, err);
+          ErrorHandlers.handleError(res, err);
         });
     });
 
@@ -270,7 +271,7 @@ export class AuthServer {
       this.app.get('/get_admin_config', (req: express.Request, res: express.Response) => {
         if (!req.headers.authorization ||
             req.headers.authorization.split(' ').length <= 1) {
-          this.handleErrorResponse(res, ERROR_MAP.UNAUTHENTICATED);
+          ErrorHandlers.handleErrorResponse(res, ERROR_MAP.UNAUTHENTICATED);
         } else {
           // Use the hostname of the request to figure out the URL of the hosted UI.
           // This should be used as authDomain in admin config, unless it was overridden to a different value.
@@ -280,7 +281,7 @@ export class AuthServer {
             res.set('Content-Type', 'application/json');
             res.send(JSON.stringify(config || {}));
           }).catch((err) => {
-            this.handleError(res, err);
+            ErrorHandlers.handleError(res, err);
           });
         }
       });
@@ -294,7 +295,7 @@ export class AuthServer {
           res.send(JSON.stringify(gcipConfig));
         })
         .catch((err) => {
-          this.handleError(res, err);
+          ErrorHandlers.handleError(res, err);
         });
     });
 
@@ -307,14 +308,14 @@ export class AuthServer {
       this.getFallbackConfig(req.hostname)
         .then((currentConfig) => {
           if (!currentConfig) {
-            this.handleErrorResponse(res, ERROR_MAP.NOT_FOUND);
+            ErrorHandlers.handleErrorResponse(res, ERROR_MAP.NOT_FOUND);
           } else {
             res.set('Content-Type', 'application/json');
             res.send(JSON.stringify(currentConfig));
           }
         })
         .catch((err) => {
-          this.handleError(res, err);
+          ErrorHandlers.handleError(res, err);
         });
     });
   }
@@ -546,38 +547,5 @@ export class AuthServer {
         // Bucket either exists or just created. Write update file to it.
         return cloudStorageHandler.writeFile(bucketName, fileName, customConfig);
       });
-  }
-
-  /**
-   * Handles the provided error response object.
-   * @param res The express response object.
-   * @param errorResponse The error response to return in the response.
-   */
-  public handleErrorResponse(
-      res: express.Response,
-      errorResponse: ErrorResponse) {
-    res.status(errorResponse.error.code).json(errorResponse);
-  }
-
-  /**
-   * Handles the provided error.
-   * @param res The express response object.
-   * @param error The associated error object.
-   */
-  public handleError(res: express.Response, error: Error) {
-    if (error && (error as any).cloudCompliant) {
-      this.handleErrorResponse(res, (error as any).rawResponse);
-    } else {
-      // Response with unknown error.
-      this.handleErrorResponse(
-          res,
-          {
-            error: {
-              code: 500,
-              status: 'UNKNOWN',
-              message: error.message || 'Unknown server error.',
-            },
-          });
-    }
   }
 }

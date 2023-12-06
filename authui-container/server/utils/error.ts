@@ -12,6 +12,8 @@
  * limitations under the License.
  */
 
+import express = require('express');
+
 export interface ErrorResponse {
   error: {
     code: number;
@@ -134,3 +136,38 @@ export const ERROR_MAP: {[key: string]: ErrorResponse} = {
     },
   },
 };
+
+export class ErrorHandlers {
+/**
+ * Handles the provided error response object.
+ * @param res The express response object.
+ * @param errorResponse The error response to return in the response.
+ */
+public static handleErrorResponse(
+  res: express.Response,
+  errorResponse: ErrorResponse) {
+    res.status(errorResponse.error.code).json(errorResponse);
+}
+
+/**
+ * Handles the provided error.
+ * @param res The express response object.
+ * @param error The associated error object.
+ */
+public static handleError(res: express.Response, error: Error) {
+  if (error && (error as any).cloudCompliant) {
+    this.handleErrorResponse(res, (error as any).rawResponse);
+  } else {
+    // Response with unknown error.
+    this.handleErrorResponse(
+        res,
+        {
+          error: {
+            code: 500,
+            status: 'UNKNOWN',
+            message: error.message || 'Unknown server error.',
+          },
+        });
+  }
+}
+}
