@@ -15,8 +15,8 @@
 import { AuthServer } from "./auth-server";
 
 export interface AuthServerExtension {
-  applyPreProxy: (authServer : AuthServer, app: Express.Application) => Promise<void>
-  applyPostProxy: (authServer : AuthServer, app: Express.Application) => Promise<void>
+  applyBeforeProxy: (authServer : AuthServer, app: Express.Application) => Promise<void>
+  applyAfterProxy: (authServer : AuthServer, app: Express.Application) => Promise<void>
 }
 
 export class AuthServerRegisteredExtensions {
@@ -40,17 +40,17 @@ export class AuthServerRegisteredExtensions {
     this.extensions.push(extension);
   }
 
-  public invokePreProxy(authServer : AuthServer, app: Express.Application) : Promise<void> {
+  public invokeBeforeProxy(authServer : AuthServer, app: Express.Application) : Promise<void> {
     // Run through the extensions sequentially
     return this.extensions
-      .map((ext) => ext.applyPreProxy(authServer, app))
+      .map((ext) => ext.applyBeforeProxy(authServer, app))
       .reduce((prev, cur) => prev.then(()=> cur), Promise.resolve());
   }
 
-  public invokePostProxy(authServer : AuthServer, app: Express.Application) : Promise<void> {
+  public invokeAfterProxy(authServer : AuthServer, app: Express.Application) : Promise<void> {
     // Run through the extensions sequentially
     return this.extensions
-      .map((ext) => ext.applyPostProxy(authServer, app))
+      .map((ext) => ext.applyAfterProxy(authServer, app))
       .reduce((prev, cur) => prev.then(()=> cur), Promise.resolve());
   }
 }

@@ -38,7 +38,7 @@ class samlSignOutExtension implements AuthServerExtension {
   private authServer : AuthServer; 
   private certManager: SecretManagerSigningCertManager = new SecretManagerSigningCertManager();
 
-  applyPreProxy(authServer: AuthServer, app: express.Application) : Promise<void> {
+  applyBeforeProxy(authServer: AuthServer, app: express.Application) : Promise<void> {
     app.get('/__/saml_logout_response', async (req: express.Request, res: express.Response) => {
       // Use the RelayState to return to the signout URL initially started by IAP
       this.handleRelayStateRedirect(req.query.RelayState as string, req, res);
@@ -161,7 +161,7 @@ class samlSignOutExtension implements AuthServerExtension {
     return;
   }
 
-  applyPostProxy(authServer: AuthServer, app: express.Application) : Promise<void> {
+  applyAfterProxy(authServer: AuthServer, app: express.Application) : Promise<void> {
     console.log("Adding endpoints for SAML signout to external IdPs");
 
     this.authServer = authServer;

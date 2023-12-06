@@ -220,11 +220,11 @@ export class AuthServer {
           }
         });
 
-        Promise.resolve(AuthServerRegisteredExtensions.getInstance().invokePostProxy(this, this.app));
+        Promise.resolve(AuthServerRegisteredExtensions.getInstance().invokeAfterProxy(this, this.app));
       }
     });
 
-    Promise.resolve(AuthServerRegisteredExtensions.getInstance().invokePreProxy(this, this.app));
+    Promise.resolve(AuthServerRegisteredExtensions.getInstance().invokeBeforeProxy(this, this.app));
 
     // Static assets.
     // Note that in production, this is served from dist/server/auth-server.js.

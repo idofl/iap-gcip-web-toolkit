@@ -24,13 +24,13 @@ import cors = require('cors');
 export class iapRedirectExtension implements AuthServerExtension {
   private authServer : AuthServer; 
 
-  applyPreProxy(authServer: AuthServer, app: express.Application) : Promise<void> {
+  applyBeforeProxy(authServer: AuthServer, app: express.Application) : Promise<void> {
     app.options('/', cors());
     app.get('/', cors());
     return;
   }
 
-  applyPostProxy(authServer: AuthServer, app: express.Application) : Promise<void> {
+  applyAfterProxy(authServer: AuthServer, app: express.Application) : Promise<void> {
     console.log("Adding endpoint /handleRedirect to handle IAP signout redirects");
 
     this.authServer = authServer;
