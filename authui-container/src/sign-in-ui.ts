@@ -89,7 +89,7 @@ export class SignInUi {
         // token refresh, safe redirect to callback URL, etc.
         const handler = new firebaseui.auth.FirebaseUiHandler(
             this.container, config);
-
+        // Log the hosted UI version.
         this.ciapAuth = new (ciap.Authentication as any)(handler, undefined, HOSTED_UI_VERSION);
 
         const signInWrapper = new SignInUiStartWrapper();
