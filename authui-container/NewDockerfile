@@ -20,13 +20,16 @@ FROM gcr.io/gcip-iap/authui:latest as build
 WORKDIR /usr/src/app
 
 # Extend server code (./server/extensions)
+COPY server/extensions/auth-server-extension.ts ./server/
 COPY server/extensions/* ./server/extensions/
 
 # Extend client code (./src)
+COPY src/sign-in-ui-start-wrapper.ts ./src
 
 # Overwrite merged files.
 COPY server/api/gcip-handler.ts ./server/api/
 COPY server/auth-server.ts ./server
+COPY server/utils/error.ts ./server/utils/
 COPY src/sign-in-ui.ts ./src
 
 # Rebundle
