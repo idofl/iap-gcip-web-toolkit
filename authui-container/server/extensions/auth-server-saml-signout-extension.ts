@@ -36,7 +36,18 @@ function log(...args: any[]) {
 
 class samlSignOutExtension implements AuthServerExtension {
   private authServer : AuthServer; 
-  private certManager: SecretManagerSigningCertManager = new SecretManagerSigningCertManager();
+  private certManager: SecretManagerSigningCertManager;
+
+  constructor() {
+    try {
+      this.certManager = new SecretManagerSigningCertManager();
+    } catch(error) {
+      // In case of error, disable certManager
+      log(error);
+      console.log("No signing certificate found for SAML endpoints. Will not be able to signout users from SAML providers!");
+      this.certManager = null;
+    }
+  }
 
   applyBeforeProxy(authServer: AuthServer, app: express.Application) : Promise<void> {
     app.get('/__/saml_logout_response', async (req: express.Request, res: express.Response) => {
@@ -95,30 +106,40 @@ class samlSignOutExtension implements AuthServerExtension {
 
                   log(`Preparing to sign out user ${userNameIdentifier} from external IdP (${samlProviderConfig.provider}).`);
                   samlProviderConfig.idpUrl = providerInfo.sloUrl ?? samlProviderConfig.idpUrl;
-                  let samlManager = new SamlManager(this.certManager);
+                  if (this.certManager) {
+                    let samlManager = new SamlManager(this.certManager);
 
-                  const redirectUrl = await samlManager.getSamlLogoutUrl(
-                    samlProviderConfig,
-                    userNameIdentifier,
-                    providerInfo.nameIdFormat,
-                    providerInfo.includeRelayState ? relayState : null,
-                    sessionIndex);
+                    const redirectUrl = await samlManager.getSamlLogoutUrl(
+                      samlProviderConfig,
+                      userNameIdentifier,
+                      providerInfo.nameIdFormat,
+                      providerInfo.includeRelayState ? relayState : null,
+                      sessionIndex);
 
-                  response = {
-                      method: 'Redirect',
-                      url: redirectUrl,
-                      data: null
-                  }
-
-                  log(`Generated SAML sign out request for user ${userNameIdentifier}:\n${redirectUrl}`);
-                } else {
-                  ErrorHandlers.handleErrorResponse(res, {
-                    error: {
-                        code: 400,
-                        status: 'INVALID_ARGUMENT',
-                        message: 'Only SAML sign out is supported at this time',
+                    response = {
+                        method: 'Redirect',
+                        url: redirectUrl,
+                        data: null
                     }
-                  });
+
+                    log(`Generated SAML sign out request for user ${userNameIdentifier}:\n${redirectUrl}`);
+                  } else {
+                    ErrorHandlers.handleErrorResponse(res, {
+                      error: {
+                          code: 400,
+                          status: 'INVALID_ARGUMENT',
+                          message: 'Could not generate signout request: Signing cert missing\nRefer to the logs to check which environment variables are missing/misconfigured',
+                      }
+                    });  
+                  }
+                } else {
+                    ErrorHandlers.handleErrorResponse(res, {
+                      error: {
+                          code: 400,
+                          status: 'INVALID_ARGUMENT',
+                          message: 'Only SAML sign out is supported at this time',
+                      }
+                    });
                   log(`Could not generate signout request for user ${userNameIdentifier}: Unsupported provider`);
                 }
               } else {
@@ -150,8 +171,10 @@ class samlSignOutExtension implements AuthServerExtension {
             });
           }
         }
-        res.set('Content-Type', 'application/json');
-        res.send(JSON.stringify(response));
+        if (!res.writableEnded) {
+          res.set('Content-Type', 'application/json');
+          res.send(JSON.stringify(response));
+        }
       } catch (err) {
         log(err);
         ErrorHandlers.handleError(res, err);
@@ -175,7 +198,7 @@ class samlSignOutExtension implements AuthServerExtension {
       }
     });
 
-    return this.certManager.init();;
+    return this.certManager ? this.certManager.init() : null;
   }
 
   private handleRelayStateRedirect(relayState: string, req: express.Request, res: express.Response): void {
