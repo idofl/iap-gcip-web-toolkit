@@ -204,8 +204,8 @@ class samlSignOutExtension implements AuthServerExtension {
   private handleRelayStateRedirect(relayState: string, req: express.Request, res: express.Response): void {
     if (relayState) {
       const redirectUrl = Buffer.from(relayState, 'base64').toString();
-      const currentOrigin = `${req.protocol}://${req.get('host')}`;
-      const redirectHost = new URL(redirectUrl).origin;
+      const currentOrigin = req.get('host');
+      const redirectHost = new URL(redirectUrl).host;
 
       if (redirectHost == currentOrigin) {
         res.redirect(redirectUrl);
