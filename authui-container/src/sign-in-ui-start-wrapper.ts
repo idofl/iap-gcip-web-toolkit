@@ -118,7 +118,9 @@ export class SignInUiStartWrapper {
     const url = new URL(request.url, window.location.href);
     url.searchParams.set('apiKey', apiKey);
     url.searchParams.set('relayState', relayState);
-    url.searchParams.set('tenantId', user.tenantId);
+    if (user.tenantId) {
+      url.searchParams.set('tenantId', user.tenantId);
+    }
     url.searchParams.set('providerId', user.providerId);
     url.searchParams.set('nameId', user.nameId);
     request.url = url.toString();
