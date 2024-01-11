@@ -65,7 +65,7 @@ class samlSignOutExtension implements AuthServerExtension {
 
         let tenantId = req.query.tenantId as string;
         // Set default tenant if no tenant was provided
-        if (!tenantId) {
+        if (!tenantId || tenantId == 'null') {
           tenantId = '_';
         }
 
