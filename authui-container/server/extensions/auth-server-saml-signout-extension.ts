@@ -205,7 +205,9 @@ class samlSignOutExtension implements AuthServerExtension {
     if (relayState) {
       const redirectUrl = Buffer.from(relayState, 'base64').toString();
       const currentOrigin = `${req.protocol}://${req.get('host')}`;
-      if (new URL(redirectUrl).origin == currentOrigin) {
+      const redirectHost = new URL(redirectUrl).origin;
+
+      if (redirectHost == currentOrigin) {
         res.redirect(redirectUrl);
         res.end();
       } else {
@@ -213,7 +215,7 @@ class samlSignOutExtension implements AuthServerExtension {
           error: {
               code: 400,
               status: 'INVALID_ARGUMENT',
-              message: 'Cannot redirect to a different site than the current.',
+              message: `Cannot redirect to a different site '${redirectHost}' than the current '${currentOrigin}'.`,
           },
         });
       } 
