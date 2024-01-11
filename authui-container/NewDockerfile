@@ -22,6 +22,11 @@ RUN apt-get -y update && apt-get -y install openssl
 # Use the app directory.
 WORKDIR /usr/src/app
 
+# Extend packages.js
+RUN npm install --only=production
+RUN npm install @google-cloud/secret-manager@^4.2.1 saml2-js cors @types/saml2-js pem-promise jsonwebtoken @types/jsonwebtoken request-promise
+RUN npm update webpack-cli
+
 # Extend server code (./server/extensions)
 COPY server/auth-server-extension.ts ./server/
 COPY server/extensions/* ./server/extensions/
@@ -35,12 +40,7 @@ COPY server/auth-server.ts ./server
 COPY server/utils/error.ts ./server/utils/
 COPY src/sign-in-ui.ts ./src
 
-# Extend packages.js
-RUN npm install --only=production
-RUN npm install @google-cloud/secret-manager@^4.2.1 saml2-js cors @types/saml2-js pem-promise jsonwebtoken @types/jsonwebtoken request-promise
-
 # Rebundle
-RUN npm update webpack-cli
 RUN npm run bundle
 
 # Run the web service on container startup.
