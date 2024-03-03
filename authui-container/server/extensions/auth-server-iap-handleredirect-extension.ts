@@ -23,6 +23,7 @@ import cors = require('cors');
 
 export class iapRedirectExtension implements AuthServerExtension {
   private authServer : AuthServer; 
+  private permittedRedirectUrls : string[];
 
   applyBeforeProxy(authServer: AuthServer, app: express.Application) : Promise<void> {
     app.options('/', cors());
@@ -34,6 +35,7 @@ export class iapRedirectExtension implements AuthServerExtension {
     console.log("Adding endpoint /handleRedirect to handle IAP signout redirects");
 
     this.authServer = authServer;
+    this.permittedRedirectUrls = JSON.parse(process.env.PERMITTED_URLS_FOR_LOGOUT || '[]');
 
     app.post('/handleRedirect', async (req: express.Request, res: express.Response) => {
       if (!isNonNullObject(req.body) ||
@@ -41,16 +43,28 @@ export class iapRedirectExtension implements AuthServerExtension {
           ErrorHandlers.handleErrorResponse(res, ERROR_MAP.INVALID_ARGUMENT);
       } else {
         const iapConfigs: UiConfig = await this.authServer.getFallbackConfig(req.hostname);
-        const redirectUrl = req.body.state as string;
-        res.set('Content-Type', 'application/json');
-        res.send(JSON.stringify({
-          originalUri: redirectUrl,
-          targetUri: redirectUrl,
-          tenantIds: Object.keys(Object.values(iapConfigs)[0].tenants),
-        }));
+        let redirectUrl = req.body.state as string;
+
+        if (!this.isRedirectUrlPermitted(redirectUrl)) {
+          // If requested URL is not permitted, return a 400 response
+          ErrorHandlers.handleErrorResponse(res, ERROR_MAP.INVALID_ARGUMENT);
+        } else {
+          res.set('Content-Type', 'application/json');
+          res.send(JSON.stringify({
+            originalUri: redirectUrl,
+            targetUri: redirectUrl,
+            tenantIds: Object.keys(Object.values(iapConfigs)[0].tenants),
+          }));
+        }
       }
     });
     return;
+  }
+
+  private isRedirectUrlPermitted(redirectUrl: string) : boolean {
+    return this.permittedRedirectUrls.some((url) => {
+      return redirectUrl.match(url.replace("\\\\", "\\"));
+    });
   }
 }
 
