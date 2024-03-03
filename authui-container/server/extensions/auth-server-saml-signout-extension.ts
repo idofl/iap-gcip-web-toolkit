@@ -74,9 +74,7 @@ class samlSignOutExtension implements AuthServerExtension {
 
         let response = null;
         // PROVIDERS_FOR_SAML_LOGOUT example:
-        // [{"tenant","provider":"saml.adfs", "nameIdFormat":"urn:oasis:names:tc:SAML:2.0:nameid-format:emailAddress"}]",
-      //"PROVIDERS_FOR_SAML_LOGOUT": "[{\"provider\":\"saml.adfs\", \"nameIdFormat\":\"urn:oasis:names:tc:SAML:2.0:nameid-format:emailAddress\", "includeRelayState": "false"}]",
-
+        // [{"tenantId":"options-tenant-id","provider":"gcip-provider-id", "nameIdFormat":"urn:oasis:names:tc:SAML:2.0:nameid-format:emailAddress", "sloUrl":"sign-out-url-if-different-than-sso", "includeRelayState": "true/false is IdP supports relayState"}]",
         let supportedProviders :any[]= JSON.parse(process.env.PROVIDERS_FOR_SAML_LOGOUT || '[]');
         if (!supportedProviders || supportedProviders.length == 0) {
           // This is not an error.
