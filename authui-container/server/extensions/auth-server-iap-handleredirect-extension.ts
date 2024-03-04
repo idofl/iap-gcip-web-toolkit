@@ -35,7 +35,7 @@ export class iapRedirectExtension implements AuthServerExtension {
     console.log("Adding endpoint /handleRedirect to handle IAP signout redirects");
 
     this.authServer = authServer;
-    this.permittedRedirectUrls = JSON.parse(process.env.PERMITTED_URLS_FOR_LOGOUT || '[]');
+    this.permittedRedirectUrls = JSON.parse(process.env.PERMITTED_URLS_FOR_REDIRECT || '[]');
 
     app.post('/handleRedirect', async (req: express.Request, res: express.Response) => {
       if (!isNonNullObject(req.body) ||
